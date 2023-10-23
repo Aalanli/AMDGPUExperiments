@@ -58,3 +58,7 @@ print(generate_torch('The cat', tok, model, 50))
 # 50 tokens, RTX 3090
 # Average time: 0.02653202533721924
 # Median time: 0.026173830032348633
+
+# 50 tokens, Mi210
+# Average time: 0.025665740966796875
+# Median time: 0.025589466094970703

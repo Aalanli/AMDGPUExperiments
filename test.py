@@ -12,7 +12,7 @@ import triton.language as tl
 
 from triton import compile
 @triton.jit
-def test(at, bt, ct):
+def test(at, bt, ct, k):
     midx = tl.arange(0, 32)
     kidx = tl.arange(0, 32)
     nidx = tl.arange(0, 32)
@@ -21,17 +21,23 @@ def test(at, bt, ct):
     bidx = kidx[:, None] * 32 + nidx[None, :]
     cidx = midx[:, None] * 32 + nidx[None, :]
 
-    a = tl.load(at + aidx)
-    b = tl.load(bt + bidx)
-    
-    x = tl.dot(a, b)
-    tl.atomic_add(ct + cidx, x)
+    a_ptrs = at + aidx
+    b_ptrs = bt + bidx
+    c_ptrs = ct + cidx
+    for i in range(k):
+        a = tl.load(a_ptrs)
+        b = tl.load(b_ptrs)
+        x = tl.dot(a, b)
+        tl.atomic_add(c_ptrs, x)
+        a_ptrs += 32
+        b_ptrs += 32
+        c_ptrs += 32
 
-a = torch.randn([32, 32], device='cuda')
-b = torch.randn([32, 32], device='cuda')
-c = torch.zeros([32, 32], device='cuda')
-test[(1,)](a, b, c)
+# a = torch.randn([32, 32], device='cuda')
+# b = torch.randn([32, 32], device='cuda')
+# c = torch.zeros([32, 32], device='cuda')
+# test[(1,)](a, b, c)
 
-kernel = compile(test, signature='*fp32,*fp32,*fp32')
+kernel = compile(test, signature='*fp32,*fp32,*fp32,i32')
 print(kernel.asm['amdgcn'])
 
