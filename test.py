@@ -2,14 +2,11 @@
 import torch
 print(torch.cuda.is_available())
 
-
-# %%
 a = torch.randn([512, 512], device='cuda')
 b = torch.rand_like(a)
 
 c = a @ b
 
-# %%
 import triton
 import triton.language as tl
 
@@ -35,10 +32,6 @@ b = torch.randn([32, 32], device='cuda')
 c = torch.zeros([32, 32], device='cuda')
 test[(1,)](a, b, c)
 
-# %%
 kernel = compile(test, signature='*fp32,*fp32,*fp32')
-
-# %%
 print(kernel.asm['amdgcn'])
-# %%
 
