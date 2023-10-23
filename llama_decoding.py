@@ -53,3 +53,8 @@ def generate_torch(input_ids: str, tokenizer, torch_model, num_tokens, device='c
 
 
 print(generate_torch('The cat', tok, model, 50))
+
+
+# 50 tokens, RTX 3090
+# Average time: 0.02653202533721924
+# Median time: 0.026173830032348633
