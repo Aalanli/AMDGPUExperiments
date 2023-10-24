@@ -1,0 +1,2 @@
+Index,KernelName,gpu-id,queue-id,queue-index,pid,tid,grd,wgr,lds,scr,arch_vgpr,accum_vgpr,sgpr,wave_size,sig,obj,GRBM_COUNT,GRBM_GUI_ACTIVE,SQ_WAVES,SQ_IFETCH,SQ_IFETCH_LEVEL,SQ_ACCUM_PREV_HIRES,DispatchNs,BeginNs,EndNs,CompleteNs
+0,"vecCopy(double*, double*, double*, int, int) ",2,0,0,36571,36571,1048576,256,0,0,8,0,16,64,0x0,0x7f1892586900,28116,28116,16384,65536,13425,1519076,3252341053001383,3252341967495973,3252341967516133,3252341062451228

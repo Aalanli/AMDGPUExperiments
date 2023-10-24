@@ -1,0 +1,2 @@
+workload_name,command,host_name,host_cpu,host_distro,host_kernel,host_rocmver,date,gpu_soc,numSE,numCU,numSIMD,waveSize,maxWavesPerCU,maxWorkgroupSize,L1,L2,sclk,mclk,cur_sclk,cur_mclk,L2Banks,LDSBanks,name,numSQC,hbmBW,ip_blocks
+vcopy,"./vcopy 1048576 256",e9dd0afb57d0,AMD EPYC 7763 64-Core Processor,Ubuntu 22.04.2 LTS,5.14.21-150400.24.69-default,5.5.1-74,Tue Oct 24 20:18:39 2023 (UTC),gfx90a,8,104,4,64,32,1024,16,8192,1700,1600,800,1600,32,32,mi200,56,1638.4,roofline|SQ|LDS|SQC|TA|TD|TCP|TCC|SPI|CPC|CPF

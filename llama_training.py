@@ -49,12 +49,12 @@ print(f"Backward: {quantile(backward)}")
 print(f"Grad Step: {quantile(grad_step)}")
 
 
-# batch_size = 8, Mi210
+# batch_size = 8, seq-len = 2048, Mi210
 # Forward: tensor([20.8165, 20.8043, 20.8263])
 # Backward: tensor([30.4398, 30.4243, 30.4643])
 # Grad Step: tensor([28.7892, 28.7251, 28.8487])
 
-# batch_size = 8, RTX 3090
+# batch_size = 8, seq-len = 2048, RTX 3090
 # Forward: tensor([23.7425, 23.1397, 24.2870])
 # Backward: tensor([31.6831, 31.4556, 32.0506])
 # Grad Step: tensor([24.2524, 23.8010, 25.0170])

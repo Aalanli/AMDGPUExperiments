@@ -1,0 +1,2 @@
+KernelName,Count,Sum(ns),Mean(ns),Median(ns),Pct
+"vecCopy(double*, double*, double*, int, int) ",1,20160.0,20160.0,20160.0,100.0
