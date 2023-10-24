@@ -79,7 +79,7 @@ matmul-performance f32:
 12  1792.0  28.561536  5.725722
 
 matmul-performance f16:
-         M      cuBLAS     Triton
+         M     rocBLAS     Triton
 0    256.0    2.139951   1.370688
 1    384.0    5.754380   2.602165
 2    512.0   11.983726   4.877098
