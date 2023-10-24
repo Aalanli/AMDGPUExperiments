@@ -6,6 +6,7 @@
 #include <iostream>
 #include "hip/hip_runtime.h"
 
+#include "test.hpp"
 
 #ifdef NDEBUG
 #define HIP_ASSERT(x) x
@@ -43,7 +44,8 @@ vectoradd_float(float* __restrict__ a, const float* __restrict__ b, const float*
 using namespace std;
 
 int main() {
-  
+  Test foo = {0, 0};
+
   float* hostA;
   float* hostB;
   float* hostC;

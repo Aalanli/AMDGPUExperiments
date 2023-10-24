@@ -21,12 +21,24 @@ set(CMAKE_CXX_LINKER   ${HIP_HIPCC_EXECUTABLE})
 set(CMAKE_BUILD_TYPE Release)
 
 
-# Source files.
-set(CPP_SOURCES ${CMAKE_SOURCE_DIR}/hello.cpp)
 
 # Preparing the executable.
-add_executable(test_hello ${CPP_SOURCES})
+add_executable(test_hello
+    ${CMAKE_SOURCE_DIR}/src/hello.cpp
+    ${CMAKE_SOURCE_DIR}/src/test.cpp
+)
+
+add_library(hello SHARED
+    ${CMAKE_SOURCE_DIR}/src/test.cpp
+)
+
 
 # Link Libraries - HIP Device and OpenMP.
+target_include_directories(test_hello PRIVATE include)
 target_compile_options(test_hello PRIVATE ${OpenMP_CXX_FLAGS})
 target_link_libraries(test_hello PRIVATE hip::device ${OpenMP_CXX_FLAGS})
+
+
+target_include_directories(hello PRIVATE include)
+target_compile_options(hello PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(hello PRIVATE hip::device ${OpenMP_CXX_FLAGS})
