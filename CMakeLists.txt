@@ -4,6 +4,7 @@ cmake_minimum_required(VERSION 3.16)
 
 # Search for rocm in common locations
 list(APPEND CMAKE_PREFIX_PATH /opt/rocm/hip /opt/rocm)
+list(APPEND CUDA_NVCC_FLAGS "--compiler-options -fPIC")
 
 # Find HIP.
 # The user may override AMDGPU_TARGETS defined in the HIP config file
@@ -12,7 +13,7 @@ list(APPEND CMAKE_PREFIX_PATH /opt/rocm/hip /opt/rocm)
 find_package(hip REQUIRED)
 
 # Find OpenMP.
-find_package(OpenMP REQUIRED)
+# find_package(OpenMP REQUIRED)
 
 # Set compiler and linker.
 set(CMAKE_CXX_COMPILER ${HIP_HIPCC_EXECUTABLE})
@@ -28,10 +29,9 @@ add_executable(test_hello
     ${CMAKE_SOURCE_DIR}/src/test.cpp
 )
 
-add_library(hello SHARED
-    ${CMAKE_SOURCE_DIR}/src/test.cpp
-)
-
+# add_library(hello SHARED
+#     ${CMAKE_SOURCE_DIR}/src/test.cpp
+# )
 
 # Link Libraries - HIP Device and OpenMP.
 target_include_directories(test_hello PRIVATE include)
@@ -39,6 +39,9 @@ target_compile_options(test_hello PRIVATE ${OpenMP_CXX_FLAGS})
 target_link_libraries(test_hello PRIVATE hip::device ${OpenMP_CXX_FLAGS})
 
 
-target_include_directories(hello PRIVATE include)
-target_compile_options(hello PRIVATE ${OpenMP_CXX_FLAGS})
-target_link_libraries(hello PRIVATE hip::device ${OpenMP_CXX_FLAGS})
+# target_include_directories(hello PRIVATE include)
+# target_compile_options(hello PRIVATE ${OpenMP_CXX_FLAGS})
+# target_link_libraries(hello PRIVATE hip::device ${OpenMP_CXX_FLAGS})
+
+# hipcc -c hello.cpp --compiler-options -fpic
+# hipcc -shared -o libhello.so hello.o
