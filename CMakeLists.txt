@@ -45,3 +45,4 @@ target_link_libraries(test_hello PRIVATE hip::device ${OpenMP_CXX_FLAGS})
 
 # hipcc -c hello.cpp --compiler-options -fpic
 # hipcc -shared -o libhello.so hello.o
+# nm -D libhello.so

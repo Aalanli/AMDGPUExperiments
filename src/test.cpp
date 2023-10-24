@@ -6,6 +6,8 @@
 #include <iostream>
 #include "hip/hip_runtime.h"
 
+extern "C" void saxpy(float* a, float* b, float* c, int n, int d);
+
 __global__ void saxpy_kernel(
     const float* __restrict__ a,
     const float* __restrict__ b,
@@ -22,6 +24,19 @@ __global__ void saxpy_kernel(
     }
 }
 
+#ifndef Test34
+#define Test34 34
+#endif
+
 void saxpy(float* a, float* b, float* c, int n, int d) {
+    
+    #ifdef Test34
     hipLaunchKernelGGL(saxpy_kernel, dim3(n / 256, d), dim3(256), 0, 0, a, b, c, n, d);
+    #endif
+}
+
+int main() {
+    #ifdef Test34
+    std::cout << Test34 << std::endl;
+    #endif
 }
