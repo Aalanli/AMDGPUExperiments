@@ -10,12 +10,12 @@
 
 #include "utils.hpp"
 
-void __global__ copy_kernel(const float* __restrict__ a, float* __restrict__ b, const int n) {
+void __global__ copy_kernel(float* __restrict__ a, float* __restrict__ b, const int n) {
     const int stride = blockDim.x * gridDim.x;
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
 
     // while (tid < n) {
-        b[tid] = a[tid];
+        a[tid] += 1.0f;
     //     tid += stride;
     // }
 }
@@ -61,13 +61,13 @@ int main(int argc, char** argv) {
     HIP_ASSERT(hipMalloc((void**)&a, n * sizeof(float)));
     HIP_ASSERT(hipMalloc((void**)&b, n * sizeof(float)));
 
-    int grid_dim = (n + 255) / 256;
-    hipLaunchKernelGGL(copy_kernel, dim3(grid_dim), dim3(256), 0, 0, a, b, n);
-    hipLaunchKernelGGL(copy_kernel_pipeline, dim3(grid_dim), dim3(256), 0, 0, a, b, n);
+    int grid_dim = (n + 1023) / 1024;
+    hipLaunchKernelGGL(copy_kernel, dim3(grid_dim), dim3(1024), 0, 0, a, b, n);
+    hipLaunchKernelGGL(copy_kernel_pipeline, dim3(grid_dim), dim3(1024), 0, 0, a, b, n);
 
     if (n % 4 == 0) {
-        grid_dim = (n / 4 + 256) / 256;
-        hipLaunchKernelGGL(copy_kernelf4, dim3(grid_dim), dim3(256), 0, 0, (float4*) a, (float4*) b, n / 4);
+        grid_dim = (n / 4 + 1023) / 1024;
+        hipLaunchKernelGGL(copy_kernelf4, dim3(grid_dim), dim3(1024), 0, 0, (float4*) a, (float4*) b, n / 4);
     }
 
     hipDeviceSynchronize();
