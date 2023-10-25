@@ -14,10 +14,10 @@ void __global__ copy_kernel(const float* __restrict__ a, float* __restrict__ b, 
     const int stride = blockDim.x * gridDim.x;
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
 
-    while (tid < n) {
+    // while (tid < n) {
         b[tid] = a[tid];
-        tid += stride;
-    }
+    //     tid += stride;
+    // }
 }
 
 void __global__ copy_kernel_pipeline(const float* __restrict__ a, float* __restrict__ b, const int n) {
