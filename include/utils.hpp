@@ -8,7 +8,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-
 #ifndef HIP_ASSERT
 #define HIP_ASSERT(error)                    \
     if(error != hipSuccess)                       \
