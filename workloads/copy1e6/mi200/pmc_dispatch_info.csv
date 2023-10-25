@@ -1,0 +1,4 @@
+Index,KernelName,gpu-id
+0,"copy_kernel(float*, float*, int) ",2
+1,"copy_kernel_pipeline(float const*, float*, int) ",2
+2,"copy_kernelf4(HIP_vector_type<float, 4u> const*, HIP_vector_type<float, 4u>*, int) ",2

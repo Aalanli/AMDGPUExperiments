@@ -1,0 +1,4 @@
+KernelName,Count,Sum(ns),Mean(ns),Median(ns),Pct
+"copy_kernel(float*, float*, int) ",1,11840.0,11840.0,11840.0,43.786982248520715
+"copy_kernel_pipeline(float const*, float*, int) ",1,9440.0,9440.0,9440.0,34.9112426035503
+"copy_kernelf4(HIP_vector_type<float, 4u> const*, HIP_vector_type<float, 4u>*, int) ",1,5760.0,5760.0,5760.0,21.301775147928996
