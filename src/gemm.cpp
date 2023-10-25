@@ -22,6 +22,7 @@
 
 #include "hip/hip_runtime.h"
 #include "rocblas/rocblas.h"
+#include <cassert>
 #include <math.h>
 #include <iostream>
 #include <rocblas/internal/rocblas-functions.h>
@@ -29,6 +30,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <vector>
+#include <string>
 
 #ifdef NDEBUG
 #define HIP_ASSERT(x) x
@@ -72,9 +74,11 @@ int main(int argc, char** argv)
 
     typedef float dataType;
 
-    rocblas_int M = 4096 * 4;
-    rocblas_int N = 4096 * 4;
-    rocblas_int K = 4096 * 4;
+    assert(argc == 3 && "M K N");
+
+    const rocblas_int M = std::stoi(argv[1]);
+    const rocblas_int K = std::stoi(argv[2]);
+    const rocblas_int N = std::stoi(argv[3]);
 
     const float hAlpha = 1.0f;
     const float hBeta  = 0.0f;
@@ -128,7 +132,7 @@ int main(int argc, char** argv)
         float* dC;
 
         HIP_ASSERT(hipMalloc((void**)&dA, M * K * sizeof(float)));
-        HIP_ASSERT(hipMalloc((void**)&dB, M * K * sizeof(float)));
+        HIP_ASSERT(hipMalloc((void**)&dB, K * N * sizeof(float)));
         HIP_ASSERT(hipMalloc((void**)&dC, M * K * sizeof(float)));
 
         // enable passing alpha parameter from pointer to host memory
@@ -139,10 +143,17 @@ int main(int argc, char** argv)
         rstatus = rocblas_sgemm(
             handle, transA, transB, M, N, K, &hAlpha, dA, lda, dB, ldb, &hBeta, dC, ldc);
 
-        // check that calculation was launched correctly on device, not that result
-        // was computed yet
         CHECK_ROCBLAS_STATUS(rstatus);
         HIP_ASSERT(hipDeviceSynchronize());
+        HIP_ASSERT(hipFree(dA));
+        HIP_ASSERT(hipFree(dB));
+        HIP_ASSERT(hipFree(dC));
+    }
+    {
+        rocblas_half *dA, *dB, *dC;
+        HIP_ASSERT(hipMalloc((void**)&dA, M * K * sizeof(rocblas_half)));
+        HIP_ASSERT(hipMalloc((void**)&dB, K * N * sizeof(rocblas_half)));
+        HIP_ASSERT(hipMalloc((void**)&dC, M * K * sizeof(rocblas_half)));
 
         rocblas_half a, b;
         a.data = 0;
