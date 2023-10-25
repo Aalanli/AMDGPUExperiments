@@ -61,13 +61,13 @@ int main(int argc, char** argv) {
     HIP_ASSERT(hipMalloc((void**)&a, n * sizeof(float)));
     HIP_ASSERT(hipMalloc((void**)&b, n * sizeof(float)));
 
-    int grid_dim = (n + 1023) / 1024;
-    hipLaunchKernelGGL(copy_kernel, dim3(grid_dim), dim3(1024), 0, 0, a, b, n);
-    hipLaunchKernelGGL(copy_kernel_pipeline, dim3(grid_dim), dim3(1024), 0, 0, a, b, n);
+    int grid_dim = (n + 255) / 256;
+    hipLaunchKernelGGL(copy_kernel, dim3(grid_dim), dim3(256), 0, 0, a, b, n);
+    hipLaunchKernelGGL(copy_kernel_pipeline, dim3(grid_dim), dim3(256), 0, 0, a, b, n);
 
     if (n % 4 == 0) {
-        grid_dim = (n / 4 + 1023) / 1024;
-        hipLaunchKernelGGL(copy_kernelf4, dim3(grid_dim), dim3(1024), 0, 0, (float4*) a, (float4*) b, n / 4);
+        grid_dim = (n / 4 + 256) / 256;
+        hipLaunchKernelGGL(copy_kernelf4, dim3(grid_dim), dim3(256), 0, 0, (float4*) a, (float4*) b, n / 4);
     }
 
     hipDeviceSynchronize();
