@@ -61,6 +61,6 @@ target_link_libraries(copy PRIVATE hip::device ${OpenMP_CXX_FLAGS})
 # target_compile_options(hello PRIVATE ${OpenMP_CXX_FLAGS})
 # target_link_libraries(hello PRIVATE hip::device ${OpenMP_CXX_FLAGS})
 
-# hipcc -c hello.cpp --compiler-options -fpic
+# hipcc -fPIC -O3 -c hello.cpp
 # hipcc -shared -o libhello.so hello.o
 # nm -D libhello.so
