@@ -1,0 +1,2 @@
+KernelName,Count,Sum(ns),Mean(ns),Median(ns),Pct
+"copy_kernel(double*, double*, int) ",1,149760.0,149760.0,149760.0,100.0

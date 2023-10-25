@@ -12,6 +12,8 @@
 
 #include "utils.hpp"
 
+
+
 void __global__ copy_kernel(float* __restrict__ a, float* __restrict__ b, const int n) {
     const int stride = blockDim.x * gridDim.x;
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
@@ -51,8 +53,9 @@ void __global__ copy_kernelf4(const float4* __restrict__ a, float4* __restrict__
     }
 }
 
+
 int main(int argc, char** argv) {
-    const int repeats = 16;
+    const int repeats = 1;
     assert(argc == 1);
     const int n = std::stoi(argv[1]);
     printf("copying %i floats\n", n);
@@ -65,15 +68,23 @@ int main(int argc, char** argv) {
     HIP_ASSERT(hipMalloc((void**)&b, n * sizeof(float)));
 
     int grid_dim = (n + 1023) / (1024 * repeats);
-    hipLaunchKernelGGL(copy_kernel, dim3(grid_dim), dim3(1024), 0, 0, a, b, n);
-    hipLaunchKernelGGL(copy_kernel_pipeline, dim3(grid_dim), dim3(1024), 0, 0, a, b, n);
+
+    float t = bench([=]() {
+            hipLaunchKernelGGL(copy_kernel, dim3(grid_dim), dim3(1024), 0, 0, a, b, n);
+        }, 10, 50);
+
+    printf("float ms %f\n", t);
+    printf("float GFlops %f\n", 1e-9 * n * sizeof(float) / (t / 1000));
 
     if (n % 4 == 0) {
         grid_dim = (n / 4 + 1023) / (1024 * repeats);
-        hipLaunchKernelGGL(copy_kernelf4, dim3(grid_dim), dim3(1024), 0, 0, (float4*) a, (float4*) b, n / 4);
-    }
+        float t1 = bench([=]() {
+            hipLaunchKernelGGL(copy_kernelf4, dim3(grid_dim), dim3(1024), 0, 0, (float4*) a, (float4*) b, n / 4);
+        }, 10, 50);
 
-    hipDeviceSynchronize();
+        printf("float4 ms %f\n", t1);
+        printf("float4 GFlops %f\n", 1e-9 * n * sizeof(float) / (t1 / 1000));
+    }
 
     hipFree(a);
     hipFree(b);
