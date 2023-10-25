@@ -23,6 +23,7 @@
 #include "hip/hip_runtime.h"
 #include "rocblas/rocblas.h"
 #include <cassert>
+#include <hip/hip_runtime_api.h>
 #include <math.h>
 #include <iostream>
 #include <rocblas/internal/rocblas-functions.h>
@@ -120,11 +121,24 @@ int main(int argc, char** argv)
         CHECK_ROCBLAS_STATUS(rstatus);
 
         // asynchronous calculation on device, returns before finished calculations
+        hipEvent_t start, stop;
+        hipEventCreate(&start);
+        hipEventCreate(&stop);
+
+        hipDeviceSynchronize();
+        hipEventRecord(start);
         rstatus = rocblas_sgemm(
             handle, transA, transB, M, N, K, &hAlpha, dA, lda, dB, ldb, &hBeta, dC, ldc);
-
+        hipEventRecord(stop);
         CHECK_ROCBLAS_STATUS(rstatus);
         HIP_ASSERT(hipDeviceSynchronize());
+        float t;
+        hipEventElapsedTime(&t, start, stop);
+
+        printf("sgemm ms %f\n", t);
+        printf("sgemm GFlops %f\n", 1e-9 * sizeof(float) * (N * K + K * M) / (t / 1000));
+
+
         HIP_ASSERT(hipFree(dA));
         HIP_ASSERT(hipFree(dB));
         HIP_ASSERT(hipFree(dC));
@@ -138,12 +152,24 @@ int main(int argc, char** argv)
         rocblas_half a, b;
         a.data = 0;
         b.data = 0;
+        hipEvent_t start, stop;
+        hipEventCreate(&start);
+        hipEventCreate(&stop);
+
+        hipDeviceSynchronize();
+        hipEventRecord(start);
 
         rstatus = rocblas_hgemm(
             handle, transA, transB, M, N, K, &a, (rocblas_half*) dA, lda, (rocblas_half*) dB, ldb, &b, (rocblas_half*) dC, ldc);
-
+        hipEventRecord(stop);
         CHECK_ROCBLAS_STATUS(rstatus);
         HIP_ASSERT(hipDeviceSynchronize());
+        float t;
+        hipEventElapsedTime(&t, start, stop);
+
+        printf("hgemm ms %f\n", t);
+        printf("hgemm GFlops %f\n", 1e-9 * sizeof(rocblas_half) * (N * K + K * M) / (t / 1000));
+
         HIP_ASSERT(hipFree(dA));
         HIP_ASSERT(hipFree(dB));
         HIP_ASSERT(hipFree(dC));
