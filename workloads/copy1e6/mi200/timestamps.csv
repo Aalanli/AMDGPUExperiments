@@ -1,0 +1,3 @@
+Index,KernelName,gpu-id,queue-id,queue-index,pid,tid,grd,wgr,lds,scr,arch_vgpr,accum_vgpr,sgpr,wave_size,sig,obj,DispatchNs,BeginNs,EndNs,CompleteNs
+0,"copy_kernel(float const*, float*, int) ",2,0,0,47683,47683,1000448,1024,0,0,16,0,32,64,0x0,0x7f21fd19af00,3329009490267096,3329009490292185,3329009490307065,3329009490317710
+1,"copy_kernelf4(HIP_vector_type<float, 4u> const*, HIP_vector_type<float, 4u>*, int) ",2,0,1,47683,47683,250880,1024,0,0,12,4,32,64,0x0,0x7f21fd19af40,3329009490296059,3329009490307065,3329009490312665,3329009490424720

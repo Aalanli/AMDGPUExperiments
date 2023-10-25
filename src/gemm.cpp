@@ -31,26 +31,7 @@
 #include <stdlib.h>
 #include <vector>
 #include <string>
-
-#ifdef NDEBUG
-#define HIP_ASSERT(x) x
-#else
-#define HIP_ASSERT(x) (assert((x)==hipSuccess))
-#endif
-
-#ifndef CHECK_HIP_ERROR
-#define CHECK_HIP_ERROR(error)                    \
-    if(error != hipSuccess)                       \
-    {                                             \
-        fprintf(stderr,                           \
-                "hip error: '%s'(%d) at %s:%d\n", \
-                hipGetErrorString(error),         \
-                error,                            \
-                __FILE__,                         \
-                __LINE__);                        \
-        exit(EXIT_FAILURE);                       \
-    }
-#endif
+#include "utils.hpp"
 
 #ifndef CHECK_ROCBLAS_STATUS
 #define CHECK_ROCBLAS_STATUS(status)                  \
@@ -66,7 +47,6 @@
         exit(EXIT_FAILURE);                           \
     }
 #endif
-
 
 int main(int argc, char** argv)
 {
