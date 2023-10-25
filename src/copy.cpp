@@ -52,7 +52,7 @@ void __global__ copy_kernelf4(const float4* __restrict__ a, float4* __restrict__
 }
 
 int main(int argc, char** argv) {
-    const int repeats = 1;
+    const int repeats = 16;
     assert(argc == 1);
     const int n = std::stoi(argv[1]);
     printf("copying %i floats\n", n);
