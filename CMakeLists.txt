@@ -3,7 +3,7 @@ project(helloworld)
 cmake_minimum_required(VERSION 3.16)
 
 # Search for rocm in common locations
-list(APPEND CMAKE_PREFIX_PATH /opt/rocm/hip /opt/rocm)
+list(APPEND CMAKE_PREFIX_PATH /opt/rocm/hip /opt/rocm /opt/rocm/rocblas)
 list(APPEND CUDA_NVCC_FLAGS "--compiler-options -fPIC")
 
 # Find HIP.
@@ -11,6 +11,9 @@ list(APPEND CUDA_NVCC_FLAGS "--compiler-options -fPIC")
 # to select the AMDGPU archs to compile for.
 # ex. set(AMDGPU_TARGETS "gfx803;gfx900;gfx906")
 find_package(hip REQUIRED)
+
+find_package(rocblas REQUIRED)
+
 
 # Find OpenMP.
 # find_package(OpenMP REQUIRED)
@@ -29,6 +32,10 @@ add_executable(test_hello
     ${CMAKE_SOURCE_DIR}/src/test.cpp
 )
 
+add_executable(gemm
+    ${CMAKE_SOURCE_DIR}/src/gemm.cpp
+)
+
 # add_library(hello SHARED
 #     ${CMAKE_SOURCE_DIR}/src/test.cpp
 # )
@@ -37,6 +44,10 @@ add_executable(test_hello
 target_include_directories(test_hello PRIVATE include)
 target_compile_options(test_hello PRIVATE ${OpenMP_CXX_FLAGS})
 target_link_libraries(test_hello PRIVATE hip::device ${OpenMP_CXX_FLAGS})
+
+target_include_directories(gemm PRIVATE include)
+target_compile_options(gemm PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(gemm PRIVATE hip::device roc::rocblas ${OpenMP_CXX_FLAGS})
 
 
 # target_include_directories(hello PRIVATE include)

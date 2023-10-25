@@ -35,8 +35,3 @@ void saxpy(float* a, float* b, float* c, int n, int d) {
     #endif
 }
 
-int main() {
-    #ifdef Test34
-    std::cout << Test34 << std::endl;
-    #endif
-}
