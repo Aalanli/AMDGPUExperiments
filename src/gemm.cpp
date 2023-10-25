@@ -24,6 +24,8 @@
 #include "rocblas/rocblas.h"
 #include <math.h>
 #include <iostream>
+#include <rocblas/internal/rocblas-functions.h>
+#include <rocblas/internal/rocblas-types.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <vector>
@@ -140,7 +142,16 @@ int main(int argc, char** argv)
         // check that calculation was launched correctly on device, not that result
         // was computed yet
         CHECK_ROCBLAS_STATUS(rstatus);
+        HIP_ASSERT(hipDeviceSynchronize());
 
+        rocblas_half a, b;
+        a.data = 0;
+        b.data = 0;
+
+        rstatus = rocblas_hgemm(
+            handle, transA, transB, M, N, K, &a, (rocblas_half*) dA, lda, (rocblas_half*) dB, ldb, &b, (rocblas_half*) dC, ldc);
+
+        CHECK_ROCBLAS_STATUS(rstatus);
         HIP_ASSERT(hipDeviceSynchronize());
         HIP_ASSERT(hipFree(dA));
         HIP_ASSERT(hipFree(dB));
