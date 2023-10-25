@@ -72,9 +72,9 @@ int main(int argc, char** argv)
 
     typedef float dataType;
 
-    rocblas_int M = 512;
-    rocblas_int N = 512;
-    rocblas_int K = 512;
+    rocblas_int M = 4096 * 4;
+    rocblas_int N = 4096 * 4;
+    rocblas_int K = 4096 * 4;
 
     const float hAlpha = 1.0f;
     const float hBeta  = 0.0f;
