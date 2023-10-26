@@ -101,7 +101,7 @@ def do_bench(fn, warmup=25, rep=100, grad_to_none=None,
 def is_fundamental_type(a):
     return isinstance(a, (int, float, str, bool))
 
-CACHE_DIR = '~/.cache/hip_kernels/'
+CACHE_DIR = '.cache/hip_kernels/'
 
 class KernelConfig:
     def __init__(self, config: Dict[str, Any]):
@@ -233,7 +233,14 @@ class KernelHandler:
             self.dump_meta()
     
 
-build('saxpy.cu', 'saxpy.so', BLOCKSIZE=512, REPEATS=4, LAUNCH_NAME='launch10')
+# build('saxpy.cu', 'saxpy.so', amd=False, BLOCKSIZE=512, REPEATS=4, LAUNCH_NAME='launch10')
+# kernel = KernelHandler(
+#     source_file='saxpy.cu', 
+#     compile_configs=[KernelConfig({'BLOCKSIZE': 512, 'REPEATS': 4})], 
+#     keys=['BLOCKSIZE', 'REPEATS'], 
+#     platform='nvidia'
+# )
+
 
 # %%
 def saxpy(a: torch.Tensor, b: torch.Tensor):
