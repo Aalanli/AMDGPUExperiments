@@ -10,14 +10,15 @@ import torch
 
 
 def build(source, out_path, amd=True, **kwargs):
-    args = [f'-D {k}={v}' for k, v in kwargs.items()]
+    args = [f' -D {k}={v} ' for k, v in kwargs.items()]
+    args = ''.join(args) + '-fPIC'
     assert os.path.exists(source) and os.path.isfile(source)
 
     if amd:
         subprocess.run(['hipcc', '-fPIC', '-O3', '-c', source] + args + ['-o', out_path], check=True)
         subprocess.run(['hipcc', '-shared', '-o', out_path, out_path], check=True)
     else:
-        subprocess.run(['nvcc', '-O3', '--compiler-options', '-fPIC', '-o', out_path, '--shared', source], check=True)
+        subprocess.run(['nvcc', '-O3', '--compiler-options', args, '-o', out_path, '--shared', source], check=True)
 
 
 def do_bench(fn, warmup=25, rep=100, grad_to_none=None,
@@ -233,28 +234,36 @@ class KernelHandler:
             self.dump_meta()
     
 
-# build('saxpy.cu', 'saxpy.so', amd=False, BLOCKSIZE=512, REPEATS=4, LAUNCH_NAME='launch10')
+build('saxpy.cu', 'saxpy.so', amd=False, BLOCKSIZE=512, REPEATS=4, LAUNCH_NAME='launch10')
 # kernel = KernelHandler(
 #     source_file='saxpy.cu', 
 #     compile_configs=[KernelConfig({'BLOCKSIZE': 512, 'REPEATS': 4})], 
 #     keys=['BLOCKSIZE', 'REPEATS'], 
 #     platform='nvidia'
 # )
-
-
-# %%
-def saxpy(a: torch.Tensor, b: torch.Tensor):
-    assert a.shape == b.shape
-    assert a.dtype == b.dtype == torch.float32
-    c = torch.empty_like(a)
-    lib = ctypes.cdll.LoadLibrary('saxpy.so')
-    
-    lib.launch10(a.data_ptr(), b.data_ptr(), c.data_ptr(), a.numel())
-
+dl = ctypes.cdll.LoadLibrary('saxpy.so')
+func = getattr(dl, 'launch10')
 a = torch.randn(1000, device='cuda')
 b = torch.randn(1000, device='cuda')
 c = torch.empty_like(a)
+func(a.data_ptr(), ctypes.c_int32(b.data_ptr()), c.data_ptr(), 1, 1000)
+c1 = a + b
+print(torch.allclose(c, c1))
+print(c1, c)
 
-# %%
-lib = ctypes.cdll.LoadLibrary('saxpy.so')
-lib.launch10()
+# # %%
+# def saxpy(a: torch.Tensor, b: torch.Tensor):
+#     assert a.shape == b.shape
+#     assert a.dtype == b.dtype == torch.float32
+#     c = torch.empty_like(a)
+#     lib = ctypes.cdll.LoadLibrary('saxpy.so')
+    
+#     lib.launch10(a.data_ptr(), b.data_ptr(), c.data_ptr(), a.numel())
+
+# a = torch.randn(1000, device='cuda')
+# b = torch.randn(1000, device='cuda')
+# c = torch.empty_like(a)
+
+# # %%
+# lib = ctypes.cdll.LoadLibrary('saxpy.so')
+# lib.launch10()
