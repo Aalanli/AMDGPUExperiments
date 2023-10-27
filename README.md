@@ -48,6 +48,7 @@ omniperf analyze -p workloads/vcopy/mi200/ --gui
 ## ISA
 [AMD_GCN](https://gpuopen.com/wp-content/uploads/2016/08/AMD_GCN3_Instruction_Set_Architecture_rev1.1.pdf)
 [amdgcn-assembly](https://gpuopen.com/learn/amdgcn-assembly/)
+```
 
                   cap gfx000 gfx803 gfx900 gfx906 gfx908 gfx90a gfx940 gfx941 gfx942 gfx1010 gfx1011 gfx1012 gfx1030 gfx1031 gfx1100 gfx1101 gfx1102 
       HasMFMA_bf16_1k      0      0      0      0      0      1      1      0      0       0       0       0       0       0       0       0       0 
@@ -102,7 +103,7 @@ HasMFMA_bf16_original      0      0      0      0      1      1      0      0   
         SeparateVscnt      0      0      0      0      0      0      0      0      0       1       1       1       1       1       1       1       1 
              VgprBank      0      0      0      0      0      0      0      0      0       1       1       1       1       1       1       1       1 
      Waitcnt0Disabled      0      0      0      0      1      1      1      1      1       0       0       0       0       0       0       0       0
-
+```
 ## MISC
 **Torch HIP Semantics**
 https://pytorch.org/docs/stable/notes/hip.html

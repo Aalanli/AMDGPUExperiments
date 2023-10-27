@@ -34,3 +34,4 @@
 compile_commands.json
 build
 .cache
+__pycache__

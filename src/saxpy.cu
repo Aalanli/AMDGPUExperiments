@@ -1,3 +1,5 @@
+#include <stdio.h>
+
 #ifndef LAUNCH_NAME
 #define LAUNCH_NAME saxpy
 #endif
@@ -16,7 +18,7 @@ __global__ void saxpy_kernel(
     float* __restrict__ c,
     int n, int d) 
 {
-    int bid = blockIdx.x;
+    int bid = blockIdx.y;
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
     int stride = blockDim.x * gridDim.x;
 
@@ -29,7 +31,14 @@ __global__ void saxpy_kernel(
 extern "C" bool LAUNCH_NAME(float* a, float* b, float* c, int n, int d);
 
 bool LAUNCH_NAME(float* a, float* b, float* c, int n, int d) {
-    saxpy_kernel<<<dim3(d / BLOCKSIZE / REPEATS, n), BLOCKSIZE>>>(a, b, c, n, d);
+    const int repeats = BLOCKSIZE * REPEATS;
+    saxpy_kernel<<<dim3((d + repeats - 1) / repeats, n), BLOCKSIZE>>>(a, b, c, n, d);
+    auto err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        printf("CUDA error: %s\n", cudaGetErrorString(err));
+        return false;
+    }
+
     return true;
 }
 

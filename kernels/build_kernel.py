@@ -1,5 +1,6 @@
 # %%
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
+from tqdm import tqdm
 import hashlib
 import os
 import json
@@ -131,7 +132,14 @@ class KernelConfig:
 
 
 class KernelHandler:
-    def __init__(self, source_file: str, compile_configs: List[KernelConfig], keys: List[str], platform: str = 'amd'):
+    def __init__(
+            self, 
+            source_file: str, 
+            compile_configs: List[KernelConfig], 
+            keys: List[str], 
+            platform: str = 'amd',
+            compile_params: Optional[Dict[str, Any]] = None
+        ):
         """
         Invariants that must be satisfied by the source file:
         1. The launch function name must be able to be set via LAUNCH_NAME macro passed to the compiler
@@ -157,14 +165,11 @@ class KernelHandler:
         with open(self.source_file, 'r') as f:
             self.source = f.read()
         folderhash = hashlib.sha256(self.source.encode('utf-8')).hexdigest()
-        dir_path = os.path.join(CACHE_DIR, file_name_no_ext + '_' + folderhash[:10])
+        dir_path = os.path.join(CACHE_DIR, file_name_no_ext + '_' + folderhash[:16])
         self.dir_path = dir_path
 
         self.keys = keys
         self.keys.sort()
-        for k in self.keys:
-            for config in compile_configs:
-                assert k in config.config, f'Key {k} is not in config {config.config}'
 
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
@@ -172,13 +177,17 @@ class KernelHandler:
         self.so_name2_config: Dict[str, KernelConfig] = {
             config.so_name(): config for config in compile_configs
         }
-        need_to_compile = filter(
+        need_to_compile = list(filter(
             lambda x: not os.path.exists(os.path.join(dir_path, x)), self.so_name2_config.keys()
-        )
-        for so_name in need_to_compile:
-            config = self.so_name2_config[so_name]
-            launch_name = config.launch_name()
-            build(self.source_file, os.path.join(dir_path, so_name), amd=platform=='amd', LAUNCH_NAME=launch_name, **config)
+        ))
+        extra_params = {k: str(v) for k, v in compile_params.items()} if compile_params is not None else {}
+        if len(need_to_compile) > 0:
+            for so_name in tqdm(need_to_compile, desc='Compiling kernels'):
+                config = self.so_name2_config[so_name]
+                assert len(config.config.keys() & extra_params.keys()) == 0, f'Extra params {extra_params.keys()} overlap with config keys {config.config.keys()}'
+                config.config.update(extra_params)
+                launch_name = config.launch_name()
+                build(self.source_file, os.path.join(dir_path, so_name), amd=platform=='amd', LAUNCH_NAME=launch_name)
         
         # so_name -> so_launch_func
         self.launch_funcs = {}
@@ -208,10 +217,16 @@ class KernelHandler:
         with open(os.path.join(self.dir_path, 'meta_data.json'), 'w') as f:
             json.dump(self.kernel_map, f)
     
-    def __call__(self, **kwargs):
+    def __call__(self, *args, **kwargs):
         runtime_args = kwargs
         runtime_key: str = self.runtime_key(runtime_args)
-        args = list(runtime_args.values())
+        args = list(args) + list(runtime_args.values())
+        for i in range(len(args)):
+            if isinstance(args[i], torch.Tensor):
+                args[i] = ctypes.c_void_p(args[i].data_ptr())
+            if isinstance(args[i], float):
+                args[i] = ctypes.c_float(args[i])
+        
         if runtime_key in self.kernel_map:
             func = self.launch_funcs[self.kernel_map[runtime_key]]
             if not func(*args):
@@ -234,36 +249,4 @@ class KernelHandler:
             self.dump_meta()
     
 
-build('saxpy.cu', 'saxpy.so', amd=False, BLOCKSIZE=512, REPEATS=4, LAUNCH_NAME='launch10')
-# kernel = KernelHandler(
-#     source_file='saxpy.cu', 
-#     compile_configs=[KernelConfig({'BLOCKSIZE': 512, 'REPEATS': 4})], 
-#     keys=['BLOCKSIZE', 'REPEATS'], 
-#     platform='nvidia'
-# )
-dl = ctypes.cdll.LoadLibrary('saxpy.so')
-func = getattr(dl, 'launch10')
-a = torch.randn(1000, device='cuda')
-b = torch.randn(1000, device='cuda')
-c = torch.empty_like(a)
-func(a.data_ptr(), ctypes.c_int32(b.data_ptr()), c.data_ptr(), 1, 1000)
-c1 = a + b
-print(torch.allclose(c, c1))
-print(c1, c)
-
-# # %%
-# def saxpy(a: torch.Tensor, b: torch.Tensor):
-#     assert a.shape == b.shape
-#     assert a.dtype == b.dtype == torch.float32
-#     c = torch.empty_like(a)
-#     lib = ctypes.cdll.LoadLibrary('saxpy.so')
-    
-#     lib.launch10(a.data_ptr(), b.data_ptr(), c.data_ptr(), a.numel())
-
-# a = torch.randn(1000, device='cuda')
-# b = torch.randn(1000, device='cuda')
-# c = torch.empty_like(a)
-
-# # %%
-# lib = ctypes.cdll.LoadLibrary('saxpy.so')
-# lib.launch10()
+# build('src/saxpy.cu', 'src/saxpy.so', amd=False, BLOCKSIZE=512, REPEATS=4, LAUNCH_NAME='launch10')
