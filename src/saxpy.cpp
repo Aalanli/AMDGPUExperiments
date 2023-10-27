@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <bits/floatn-common.h>
+#include <hip/amd_detail/amd_hip_runtime.h>
 #include <stdio.h>
 #include <algorithm>
 #include <stdlib.h>
@@ -18,7 +19,7 @@
 #define REPEATS 4
 #endif
 
-__global__ void saxpy_kernel(
+static __global__ __launch_bounds__(512) void saxpy_kernel(
     const float* __restrict__ a,
     const float* __restrict__ b,
     float* __restrict__ c,

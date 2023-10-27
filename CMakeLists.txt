@@ -28,6 +28,7 @@ set(CMAKE_BUILD_TYPE Release)
 add_executable(helloworld
     ${CMAKE_SOURCE_DIR}/src/helloworld.cpp
     ${CMAKE_SOURCE_DIR}/src/saxpy.cpp
+    ${CMAKE_SOURCE_DIR}/src/rocblas_gemm.cpp
 )
 # Link Libraries - HIP Device and OpenMP.
 target_include_directories(helloworld PRIVATE include)

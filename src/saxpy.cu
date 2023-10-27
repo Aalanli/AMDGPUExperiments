@@ -28,9 +28,8 @@ __global__ void saxpy_kernel(
     }
 }
 
-extern "C" bool LAUNCH_NAME(float* a, float* x, float* b, float* c, int n);
 
-bool LAUNCH_NAME(float* a, float* x, float* b, float* c, int n) {
+extern "C" __attribute__((visibility("default"))) bool LAUNCH_NAME(float* a, float* x, float* b, float* c, int n) {
     const int repeats = BLOCKSIZE * REPEATS;
     saxpy_kernel<<<(n + repeats - 1) / repeats, BLOCKSIZE>>>(a, x, b, c, n);
     auto err = cudaGetLastError();

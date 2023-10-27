@@ -22,6 +22,11 @@
     }
 #endif
 
+#ifndef EXPORT
+#define EXPORT extern "C" __attribute__((visibility("default")))
+#endif
+
+#define KERNEL(lb_) static __global__ __launch_bounds__((lb_)) void
 
 void __global__ init_kernel(float* __restrict__ a, float v, int n) {
     const int stride = blockDim.x * gridDim.x;
@@ -81,4 +86,8 @@ float bench(F&& func, int warmup, int iter) {
     }
 
     return times / iter;
+}
+
+int cdiv(int a, int b) {
+    return (a + b - 1) / b;
 }

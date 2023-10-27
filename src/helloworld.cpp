@@ -8,13 +8,7 @@
 #include <stdlib.h>
 #include <iostream>
 #include "hip/hip_runtime.h"
-
-
-#ifdef NDEBUG
-#define HIP_ASSERT(x) x
-#else
-#define HIP_ASSERT(x) (assert((x)==hipSuccess))
-#endif
+// #include "utils.hpp"
 
 
 #define WIDTH     1024
@@ -27,97 +21,69 @@
 #define THREADS_PER_BLOCK_Z  1
 
 __global__ void 
-vectoradd_float(float* __restrict__ a, const float* __restrict__ b, const float* __restrict__ c, int width, int height) 
+vectoradd_float(float* __restrict__ a, const float* __restrict__ b, const float* __restrict__ c, int width, int height) { 
+    int x = blockDim.x * hipBlockIdx_x + hipThreadIdx_x;
+    int y = hipBlockDim_y * hipBlockIdx_y + hipThreadIdx_y;
 
-  { 
-      int x = blockDim.x * hipBlockIdx_x + hipThreadIdx_x;
-      int y = hipBlockDim_y * hipBlockIdx_y + hipThreadIdx_y;
+    int i = y * width + x;
+    if ( i < (width * height)) {
+    a[i] = b[i] + c[i];
+    }
+}
 
-      int i = y * width + x;
-      if ( i < (width * height)) {
-        a[i] = b[i] + c[i];
-      }
-
-
-
-  }
-
+extern "C" bool rocblas_gemm(const float* a, const float* b, float* c, int m, int k, int n);
 
 using namespace std;
 
-int main() {
+template<typename T>
+struct DeviceBuf {
+    T* ptr;
+    int size;
 
-  float* hostA;
-  float* hostB;
-  float* hostC;
-
-  float* deviceA;
-  float* deviceB;
-  float* deviceC;
-
-  hipDeviceProp_t devProp;
-  hipGetDeviceProperties(&devProp, 0);
-  cout << " System minor " << devProp.minor << endl;
-  cout << " System major " << devProp.major << endl;
-  cout << " agent prop name " << devProp.name << endl;
-
-
-
-  cout << "hip Device prop succeeded " << endl ;
-
-
-  int i;
-  int errors;
-
-  hostA = (float*)malloc(NUM * sizeof(float));
-  hostB = (float*)malloc(NUM * sizeof(float));
-  hostC = (float*)malloc(NUM * sizeof(float));
-  
-  // initialize the input data
-  for (i = 0; i < NUM; i++) {
-    hostB[i] = (float)i;
-    hostC[i] = (float)i*100.0f;
-  }
-  
-  HIP_ASSERT(hipMalloc((void**)&deviceA, NUM * sizeof(float)));
-  HIP_ASSERT(hipMalloc((void**)&deviceB, NUM * sizeof(float)));
-  HIP_ASSERT(hipMalloc((void**)&deviceC, NUM * sizeof(float)));
-  
-  HIP_ASSERT(hipMemcpy(deviceB, hostB, NUM*sizeof(float), hipMemcpyHostToDevice));
-  HIP_ASSERT(hipMemcpy(deviceC, hostC, NUM*sizeof(float), hipMemcpyHostToDevice));
-
-
-  hipLaunchKernelGGL(vectoradd_float, 
-                  dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
-                  dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
-                  0, 0,
-                  deviceA ,deviceB ,deviceC ,WIDTH ,HEIGHT);
-
-
-  HIP_ASSERT(hipMemcpy(hostA, deviceA, NUM*sizeof(float), hipMemcpyDeviceToHost));
-
-  // verify the results
-  errors = 0;
-  for (i = 0; i < NUM; i++) {
-    if (hostA[i] != (hostB[i] + hostC[i])) {
-      errors++;
+    DeviceBuf(int size) {
+        this->size = size;
+        (hipMalloc(&ptr, size * sizeof(T)));
     }
-  }
-  if (errors!=0) {
-    printf("FAILED: %d errors\n",errors);
-  } else {
-      printf ("PASSED!\n");
-  }
 
-  HIP_ASSERT(hipFree(deviceA));
-  HIP_ASSERT(hipFree(deviceB));
-  HIP_ASSERT(hipFree(deviceC));
+    ~DeviceBuf() {
+        (hipFree(ptr));
+    }
 
-  free(hostA);
-  free(hostB);
-  free(hostC);
+    void zero() {
+        (hipMemset(this->ptr, 0, this->size * sizeof(T)));
+    }
+};
 
-  //hipResetDefaultAccelerator();
+int main() {
+    hipDeviceProp_t devProp;
+    hipGetDeviceProperties(&devProp, 0);
+    cout << " System minor " << devProp.minor << endl;
+    cout << " System major " << devProp.major << endl;
+    cout << " agent prop name " << devProp.name << endl;
 
-  return errors;
+    cout << "hip Device prop succeeded " << endl ;
+    {
+        DeviceBuf<float> deviceA(NUM);
+        DeviceBuf<float> deviceB(NUM);
+        DeviceBuf<float> deviceC(NUM);
+
+        hipLaunchKernelGGL(vectoradd_float, 
+                        dim3(WIDTH/THREADS_PER_BLOCK_X, HEIGHT/THREADS_PER_BLOCK_Y),
+                        dim3(THREADS_PER_BLOCK_X, THREADS_PER_BLOCK_Y),
+                        0, 0,
+                        deviceA.ptr, deviceB.ptr, deviceC.ptr, WIDTH, HEIGHT);
+    }
+
+    {
+        int m = 1024;
+        int n = 1024;
+        int k = 1024;
+        DeviceBuf<float> A(m * k);
+        DeviceBuf<float> B(k * n);
+        DeviceBuf<float> C(m * n);
+        
+        auto passed = rocblas_gemm(A.ptr, B.ptr, C.ptr, m, k, n);
+        cout << "rocblas_gemm " << passed << endl;
+    }
+
 }
