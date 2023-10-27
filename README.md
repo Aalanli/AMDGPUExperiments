@@ -1,5 +1,15 @@
 # Sources
 
+Compile on local machine without AMD gpu
+[source](https://sep5.readthedocs.io/en/latest/Installation_Guide/Installation-Guide.html)
+```bash
+wget -qO - http://repo.radeon.com/rocm/apt/debian/rocm.gpg.key | sudo apt-key add -
+echo 'deb [arch=amd64] http://repo.radeon.com/rocm/apt/debian/ xenial main' | sudo tee /etc/apt/sources.list.d/rocm.list
+
+sudo apt update
+sudo apt install rocm-dev
+```
+
 ## Matrix Instructions
 [AMD Lab notes](https://gpuopen.com/learn/amd-lab-notes/amd-lab-notes-matrix-cores-readme/)
 [Matrix Instruction Calculator](https://github.com/RadeonOpenCompute/amd_matrix_instruction_calculator)

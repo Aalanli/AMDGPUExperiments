@@ -11,29 +11,30 @@ kernel = KernelHandler(
         KernelConfig({'BLOCKSIZE': 1024, 'REPEATS': 2}),
         KernelConfig({'BLOCKSIZE': 1024, 'REPEATS': 4}),
     ], 
-    keys=['n', 'd'], 
+    keys=['n'], 
     platform='nvidia'
 )
 
-def saxpy(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    assert a.shape == b.shape
-    d = a.shape[-1]
-    n = math.prod(a.shape[:-1])
+def saxpy(a: torch.Tensor, x: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    assert a.shape == b.shape == x.shape
+    n = math.prod(a.shape)
     c = torch.empty_like(a)
-    kernel(a, b, c, n=n, d=d)
+    kernel(a, x, b, c, n=n)
     return c
 
 if __name__ == '__main__':
     a = torch.randn(1000, device='cuda')
+    x = torch.randn(1000, device='cuda')
     b = torch.randn(1000, device='cuda')
-    c = saxpy(a, b)
-    c1 = a + b
+    c = saxpy(a, x, b)
+    c1 = a * x + b
     print(torch.allclose(c, c1))
 
     a = torch.randn(2, 1000, device='cuda')
     b = torch.randn(2, 1000, device='cuda')
+    x = torch.randn(2, 1000, device='cuda')
     c = torch.zeros_like(a)
-    c = saxpy(a, b)
-    c1 = a + b
+    c = saxpy(a, x, b)
+    c1 = a * x + b
     print(torch.allclose(c, c1))
 
