@@ -28,4 +28,7 @@ __device__ Tensor<T, T1, T2> assign(F&& f) {
 __global__ void test() {
     int gsize = blockDim.x;
     auto t = assign<float, 32, 32>([&](int i, int j) { return i * gsize + j; });
+    auto t1 = [](int i, int j) { return i + j; };
+    int (*f)(int, int) = t1;
+    auto t2 = assign<float, 32, 32>(f);
 }

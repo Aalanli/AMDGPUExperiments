@@ -125,6 +125,88 @@ KERNEL(DIM_M * DIM_N) rocblas_gemm_kernel(
     }
 }
 
+
+template <typename T,
+          int  DIM_M,
+          int  DIM_N,
+          int  BLK_M,
+          int  BLK_N,
+          int  BLK_K,
+          int  DIM_M_A,
+          int  DIM_N_B>
+KERNEL(DIM_M * DIM_N) rocblas_gemm_kernelv2(
+    int M,
+    int N,
+    int K,
+    const T* __restrict__ dA, // M x K
+    const T* __restrict__ dB, // K x N
+    T* __restrict__ dC)
+{
+    const int DIM_K_A = DIM_M * DIM_N / DIM_M_A;
+    const int DIM_K_B = DIM_M * DIM_N / DIM_N_B;
+    int thx  = threadIdx.x; // thread's m position in C
+    int thy  = threadIdx.y; // thread's n position in C
+    int idt  = DIM_M * thy + thx; // thread's number
+    int blx  = blockIdx.x; // block's m position
+    int bly  = blockIdx.y; // block's n position
+    // int blz  = blockIdx.z; // block's matrix in the batch
+    int thxA = idt % DIM_M_A; // thread's row position for loading A
+    int thyA = idt / DIM_M_A; // thread's col position for loading A
+    int thxB = idt % DIM_N_B; // thread's row position for loading B
+    int thyB = idt / DIM_N_B; // thread's col position for loading B
+
+    __shared__ T sA[BLK_M][BLK_K]; // shared memory for A
+    __shared__ T sB[BLK_K][BLK_N]; // shared memory for B
+    T            rC[BLK_M / DIM_M][BLK_N / DIM_N]; // registers for C
+
+    int coord_Am = blx * BLK_M + thyA;
+    int coord_Ak = thxA;
+    int coord_Bk = bly * BLK_N + thyB;
+    int coord_Bn = thxB;
+
+    for(int n = 0; n < BLK_N / DIM_N; ++n)
+        for(int m = 0; m < BLK_M / DIM_M; ++m)
+            rC[n][m] = 0.0;
+
+    for(int kk = 0; kk < K; kk += BLK_K) {
+        for(int k = 0; k < BLK_K; k += DIM_K_A)
+            for(int m = 0; m < BLK_M; m += DIM_M_A)
+                if (coord_Ak + k < K && coord_Am + m < M)
+                    sA[m + thxA][k + thyA] = dA[coord_Ak + k + (coord_Am + m) * K];
+                else
+                    sA[m + thxA][k + thyA] = 0.0;
+                
+        for(int n = 0; n < BLK_N; n += DIM_N_B)
+            for(int k = 0; k < BLK_K; k += DIM_K_B)
+                if (coord_Bk + k < K && coord_Bn + n < N)
+                    sB[k + thyB][n + thxB] = dB[(coord_Bk + k) * N + coord_Bn + n];
+                else
+                    sB[k + thyB][n + thxB] = 0.0;
+
+        __syncthreads();
+
+        for(int k = 0; k < BLK_K; ++k)
+            for(int n = 0; n < BLK_N / DIM_N; ++n)
+                for(int m = 0; m < BLK_M / DIM_M; ++m)
+                    rC[m][n] += sA[m * DIM_M + thx][k] * sB[k][n * DIM_N + thy];
+
+        __syncthreads();
+
+        coord_Ak += BLK_K;
+        coord_Bk += BLK_K;
+    }
+
+    for(int n = 0; n < BLK_N / DIM_N; ++n) {
+        for(int m = 0; m < BLK_M / DIM_M; ++m) {
+            int coord_dCm = blx * BLK_M + m * DIM_M + thx;
+            int coord_dCn = bly * BLK_N + n * DIM_N + thy;
+
+            if (coord_dCm < M && coord_dCn < N)
+                dC[coord_dCm * N + coord_dCn] = rC[m][n];
+        }
+    }
+}
+
 #ifndef LAUNCH_NAME
 #define LAUNCH_NAME rocblas_gemm
 #endif
@@ -161,14 +243,14 @@ KERNEL(DIM_M * DIM_N) rocblas_gemm_kernel(
 #define TYPE float
 #endif
 
-EXPORT bool LAUNCH_NAME(const TYPE* a, const TYPE* b, TYPE* c, int m, int k, int n) {
-    auto kernel = rocblas_gemm_kernel<TYPE, WARPSZ_M, WARPSZ_N, BLOCKSIZE_M, BLOCKSIZE_N, BLOCKSIZE_K, READ_A_DIM, READ_B_DIM, 1, 1, 'N', 'N'>;
-    if (m % BLOCKSIZE_M != 0 || n % BLOCKSIZE_N != 0 || k % BLOCKSIZE_K != 0)
+EXPORT bool LAUNCH_NAME(const TYPE* a, const TYPE* b, TYPE* c, int m, int k, int n, int version) {
+    auto kernel = rocblas_gemm_kernelv2<TYPE, WARPSZ_M, WARPSZ_N, BLOCKSIZE_M, BLOCKSIZE_N, BLOCKSIZE_K, READ_A_DIM, READ_B_DIM>;
+    if (version != 1)
         return false;
     int blocks_m = cdiv(m, BLOCKSIZE_M);
     int blocks_n = cdiv(n, BLOCKSIZE_N);
     // for some reason this kernel swaps A and B, so we swap blocks, warps, and pointers
-    hipLaunchKernelGGL(kernel, dim3(blocks_n, blocks_m), dim3(WARPSZ_N, WARPSZ_M), 0, 0, m, n, k, b, n, a, k, c, n);
+    hipLaunchKernelGGL(kernel, dim3(blocks_m, blocks_n), dim3(WARPSZ_M, WARPSZ_N), 0, 0, m, n, k, a, b, c);
     auto error = hipGetLastError();
     if (error != hipSuccess) {
         printf("Error: %s\n", hipGetErrorString(error));

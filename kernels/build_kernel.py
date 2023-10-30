@@ -15,12 +15,21 @@ def build(source, out_path, amd=True, **kwargs):
     args = ''.join(args) + '-fPIC'
     assert os.path.exists(source) and os.path.isfile(source)
 
+    file = os.path.basename(source)
+    file_ext = os.path.splitext(file)[1]
     if amd:
-        subprocess.run(['hipcc', '-fPIC', '-O3', '-c', source] + args + ['-o', out_path], check=True)
+        assert file_ext == '.cpp', f'AMD kernel must be a cpp file, got {file_ext}'
+        subprocess.run(['hipcc', '-O3', '-c', source, args, '-o', out_path, '-I', 'include/'], check=True)
         subprocess.run(['hipcc', '-shared', '-o', out_path, out_path], check=True)
-    else:
+    elif file_ext == '.cpp':
+        env = os.environ.copy()
+        env['HIP_PLATFORM'] = 'nvidia'
+        subprocess.run(['hipcc', '-O3', '-c', source, '--compiler-options', args, '-o', out_path, '-I', 'include/'], check=True, env=env)
+        subprocess.run(['hipcc', '-shared', '-o', out_path, out_path], check=True)
+    elif file_ext == '.cu':
         subprocess.run(['nvcc', '-O3', '--compiler-options', args, '-o', out_path, '--shared', source], check=True)
-
+    else:
+        raise RuntimeError(f'Unknown file extension {file_ext}')
 
 def do_bench(fn, warmup=25, rep=100, grad_to_none=None,
              quantiles=None,

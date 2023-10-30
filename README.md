@@ -10,6 +10,17 @@ sudo apt update
 sudo apt install rocm-dev
 ```
 
+print configuration
+```bash
+hipconfig
+```
+
+compile for nvidia
+```bash
+export HIP_PLATFORM=nvidia
+hipcc test.cpp ...
+```
+
 ## Matrix Instructions
 [AMD Lab notes](https://gpuopen.com/learn/amd-lab-notes/amd-lab-notes-matrix-cores-readme/)
 [Matrix Instruction Calculator](https://github.com/RadeonOpenCompute/amd_matrix_instruction_calculator)

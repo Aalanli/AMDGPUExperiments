@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <bits/floatn-common.h>
 #include <hip/amd_detail/amd_hip_runtime.h>
-#include <hip/amd_detail/amd_hip_vector_types.h>
+// #include <hip/amd_detail/amd_hip_vector_types.h>
 
 #include <stdio.h>
 #include <algorithm>
