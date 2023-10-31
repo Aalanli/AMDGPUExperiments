@@ -196,7 +196,7 @@ class KernelHandler:
                 assert len(config.config.keys() & extra_params.keys()) == 0, f'Extra params {extra_params.keys()} overlap with config keys {config.config.keys()}'
                 config.config.update(extra_params)
                 launch_name = config.launch_name()
-                build(self.source_file, os.path.join(dir_path, so_name), amd=platform=='amd', LAUNCH_NAME=launch_name)
+                build(self.source_file, os.path.join(dir_path, so_name), amd=platform=='amd', LAUNCH_NAME=launch_name, **config.config)
         
         # so_name -> so_launch_func
         self.launch_funcs = {}
