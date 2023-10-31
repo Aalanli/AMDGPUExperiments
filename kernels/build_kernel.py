@@ -147,7 +147,8 @@ class KernelHandler:
             compile_configs: List[KernelConfig], 
             keys: List[str], 
             platform: str = 'amd',
-            compile_params: Optional[Dict[str, Any]] = None
+            compile_params: Optional[Dict[str, Any]] = None,
+            disable_benchmark: bool = False
         ):
         """
         Invariants that must be satisfied by the source file:
@@ -158,6 +159,7 @@ class KernelHandler:
             False: kernel launch failed
         """ 
         assert platform in ['amd', 'nvidia']
+        self.disable_benchmark = disable_benchmark
         self.platform = platform
         # CACHE_DIR
         # |_ hash(source_file)  -> self.dir_path
@@ -236,6 +238,11 @@ class KernelHandler:
             if isinstance(args[i], float):
                 args[i] = ctypes.c_float(args[i])
         
+        if self.disable_benchmark:
+            func = next(iter(self.launch_funcs.items()))[1]
+            if not func(*args):
+                raise RuntimeError(f'Kernel launch failed')
+            return
         if runtime_key in self.kernel_map:
             func = self.launch_funcs[self.kernel_map[runtime_key]]
             if not func(*args):
