@@ -30,6 +30,7 @@ add_executable(helloworld
     ${CMAKE_SOURCE_DIR}/src/saxpy.cpp
     ${CMAKE_SOURCE_DIR}/src/rocblas_gemm.cpp
     ${CMAKE_SOURCE_DIR}/src/simt_gemm.cpp
+    ${CMAKE_SOURCE_DIR}/src/ds_perm.cpp
 )
 # Link Libraries - HIP Device and OpenMP.
 target_include_directories(helloworld PRIVATE include)

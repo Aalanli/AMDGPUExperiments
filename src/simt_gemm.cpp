@@ -1,123 +1,31 @@
 #include "utils.hpp"
-#include <__clang_hip_runtime_wrapper.h>
-#include <hip/amd_detail/amd_warp_functions.h>
+#include <hip/amd_detail/amd_hip_runtime.h>
 
-#ifndef LAUNCH_NAME
-#define LAUNCH_NAME simt_gemm
-#endif
 
-#ifndef TYPE
-#define TYPE float
-#endif
 
-#ifndef BLOCK_WARPS_K
-#define BLOCK_WARPS_K 2
-#endif
-
-template <int B1, int B2, int W1, int W2, int T1, int T2>
-struct BlockLayout {
-    enum { nw1 = B1, nw2 = B2 };
-    enum { ws1 = W1, ws2 = W2 };
-    enum { t1 = T1, t2 = T2 };
-    enum { sh1 = B1 * W1 * T1, sh2 = B2 * W2 * T2 };
+/// constexpr max
+template <int A, int B>
+struct Max {
+    static constexpr int value = A > B ? A : B;
 };
 
-struct Index {
-    int nw1;  
-    int nw2;
-    int ws1;
-    int ws2;
-};
+__device__ __forceinline__ float warp_reduce(float data) {
+    int lane = threadIdx.x % warpSize;
+    for (int i = 1; i < warpSize; i *= 2)
+        data += __shfl_xor(data, i);
+    return data;
+}
 
-template <typename T, int Sh1, int Sh2, typename Layout>
-struct BlockTensor {
-    static constexpr int rep1 = Sh1 / Layout::sh1;
-    static constexpr int rep2 = Sh2 / Layout::sh2;
-
-    T data[rep1][rep2][Layout::t1][Layout::t2];
-
-    __device__ __forceinline__ Index index() {
-        Index index;
-        int id = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * blockDim.x * blockDim.y;
-        int wid = id / warpSize;
-        index.nw2 = wid % Layout::nw2;
-        index.nw1 = wid / Layout::nw2;
-
-        int tid = id % warpSize;
-        index.ws2 = tid % Layout::ws2;
-        index.ws1 = tid / Layout::ws2;
-        return index;
-    }
-
-    /// T (*f)(int i, int j)
-    template <typename F>
-    __device__ __forceinline__ BlockTensor<T, Sh1, Sh2, Layout> set(F&& f) {
-        BlockTensor<T, Sh1, Sh2, Layout> res;
-        auto idx = res.index();
-        for (int r1 = 0; r1 < res.rep1; ++r1) {
-            for (int r2 = 0; r2 < res.rep2; ++r2) {
-                for (int t1 = 0; t1 < Layout::t1; ++t1) {
-                    for (int t2 = 0; t2 < Layout::t2; ++t2) {
-                        int i = r1 * Layout::sh1 + idx.nw1 * Layout::ws1 * Layout::t1 + idx.ws1 * Layout::t1 + t1;
-                        int j = r2 * Layout::sh2 + idx.nw2 * Layout::ws2 * Layout::t2 + idx.ws2 * Layout::t2 + t2;
-                        res.data[r1][r2][t1][t2] = f(i % Sh1, j % Sh2);
-                    }
-                }
-            }
-        }
-        return res;
-    }
-
-    /// void (*f)(int i, int j, T val)
-    template <typename F>
-    __device__ __forceinline__ BlockTensor<T, Sh1, Sh2, Layout> get(F&& f) {
-        BlockTensor<T, Sh1, Sh2, Layout> res;
-        auto idx = res.index();
-        for (int r1 = 0; r1 < res.rep1; ++r1) {
-            for (int r2 = 0; r2 < res.rep2; ++r2) {
-                for (int t1 = 0; t1 < Layout::t1; ++t1) {
-                    for (int t2 = 0; t2 < Layout::t2; ++t2) {
-                        int i = r1 * Layout::sh1 + idx.nw1 * Layout::ws1 * Layout::t1 + idx.ws1 * Layout::t1 + t1;
-                        int j = r2 * Layout::sh2 + idx.nw2 * Layout::ws2 * Layout::t2 + idx.ws2 * Layout::t2 + t2;
-                        f(i % Sh1, j % Sh2, res.data[r1][r2][t1][t2]);
-                    }
-                }
-            }
-        }
-        return res;
-    }
-};
-
-template <int BlockSize, int Warps>
-KERNEL(Warps * 32) test_copy_kernel(const float* __restrict__ a, float* __restrict__ b) {
-    using Layout = BlockLayout<1, Warps, 1, warpSize, 1, 4>;
-    using Tensor = BlockTensor<float, 1, BlockSize / 4, Layout>;
-    using LayoutPacked = BlockLayout<1, Warps, 1, warpSize, 1, 1>;
-    using TensorPacked = BlockTensor<float4, 1, BlockSize / 4, LayoutPacked>;
-    int blx = blockIdx.x;
-
-    TensorPacked load;
-    const float4* a4 = (const float4*)(a);
-    load.set([&](int i, int j) {
-        return a4[j + blx * BlockSize];
-    });
-
-    Tensor store = reinterpret_cast<Tensor>(load);
-    __shared__ float buf[BlockSize];
-    store.get([&](int i, int j, float v) {
-        buf[j] = v;
-    });
-
-    TensorPacked store2;
-    store2.set([&](int i, int j) {
-        int tj = j * 4;
-        return make_float4(buf[tj], buf[tj + 1], buf[tj + 2], buf[tj + 3]);
-    });
-
-    store2.get([&](int i, int j, float4 v) {
-        float4* b4 = (float4*)(b);
-        b4[j + blx * BlockSize] = v;
-    });
+constexpr unsigned int next_power_of_2(const unsigned int a) {
+    unsigned int v = a;
+    v--;
+    v |= v >> 1;
+    v |= v >> 2;
+    v |= v >> 4;
+    v |= v >> 8;
+    v |= v >> 16;
+    v += 1;
+    return v;
 }
 
 // 1. effect of vectorized load
@@ -127,7 +35,7 @@ template <int BlockM,
           int BlockK,
           int BlockN,
           int WarpM,
-          int WarpK,
+        //   int WarpK,
           int WarpN,
           int ThreadM,
           int ThreadK,
@@ -135,22 +43,39 @@ template <int BlockM,
           int TM,
           int TK,
           int TN>
-KERNEL(WarpM * WarpK * WarpN * 32) simt_gemm(
+KERNEL(WarpM * /*WarpK* */ WarpN * warpSize) simt_gemm_kernel(
     const float* __restrict__ a, 
     const float* __restrict__ b, 
     float* __restrict__ c,
     const int M, const int N, const int K
 ) {
-    assert(BlockM >= WarpM * ThreadM * TM);
-    assert(BlockK >= WarpK * ThreadK * TK);
-    assert(BlockN >= WarpN * ThreadN * TN);
-    
-    constexpr int nthreads = WarpM * WarpK * WarpN * 32;
-    // stage 1. A[BlockM, BlockK] x B[BlockK, BlockN]
-    // stage 2. A -> [m * ]
-    const int smem_elems = BlockM * BlockK + BlockK * BlockN;
+    constexpr int WarpK = 1; // if WarpK > 1, then we have to reduce in smem
+
+    constexpr int nthreads = WarpM * WarpK * WarpN * warpSize;
+    // stage 1. each block handles A[BlockM, BlockK] x B[BlockK, BlockN]
+    // stage 2. each warp handles A[ThreadM, BlockK / WarpK] x B[BlockK / WarpK, ThreadN]
+    // stage 3. each thread handles A[TM, TK] x B[TK, TN]
+    constexpr int smem_elems = Max<BlockM * BlockK + BlockK * BlockN, BlockN * BlockM>::value;
     __shared__ float smem[smem_elems];
-    
+
+    static_assert(BlockK >= WarpK * ThreadK * TK,"");
+    static_assert(ThreadM * ThreadK * ThreadN == warpSize, "");
+    static_assert(BlockM >= WarpM * ThreadM * TM && BlockM % (WarpM * ThreadM * TM) == 0, "");
+    static_assert(BlockN >= WarpN * ThreadN * TN && BlockN % (WarpN * ThreadN * TN) == 0, "");
+    static_assert(next_power_of_2(ThreadK) == ThreadK, "");
+    constexpr int WM_REP = BlockM / (WarpM * ThreadM * TM);
+    constexpr int WN_REP = BlockN / (WarpN * ThreadN * TN);
+    float regs_c[WM_REP][WN_REP][TM][TN];
+    for (int wmr = 0; wmr < WM_REP; ++wmr) {
+        for (int wnr = 0; wnr < WN_REP; ++wnr) {
+            for (int tm = 0; tm < TM; ++tm) {
+                for (int tn = 0; tn < TN; ++tn) {
+                    regs_c[wmr][wnr][tm][tn] = 0.0f;
+                }
+            }
+        }
+    }
+
     float* sA = smem;
     float* sB = smem + BlockM * BlockK;
 
@@ -158,7 +83,7 @@ KERNEL(WarpM * WarpK * WarpN * 32) simt_gemm(
         // each block computes [BlockM, BlockK] x [BlockK, BlockN]
         // load a
         {
-            assert(nthreads >= BlockK);
+            static_assert(nthreads >= BlockK, "");
             int thread_m = threadIdx.x / BlockK;
             int thread_k = threadIdx.x % BlockK;
             for (int m = 0; m < BlockM; m += nthreads / BlockK) {
@@ -170,7 +95,7 @@ KERNEL(WarpM * WarpK * WarpN * 32) simt_gemm(
         }
         // load b
         {
-            assert(nthreads >= BlockN);
+            static_assert(nthreads >= BlockN, "");
             int thread_k = threadIdx.x / BlockN;
             int thread_n = threadIdx.x % BlockN;
             for (int k = 0; k < BlockK; k += nthreads / BlockN) {
@@ -182,31 +107,203 @@ KERNEL(WarpM * WarpK * WarpN * 32) simt_gemm(
         }
 
         __syncthreads();
+        // now we have A[BlockM, BlockK] x B[BlockK, BlockN] in smem
 
         // load regs a
         // each warp computes [ThreadM, ThreadK] x [ThreadK, ThreadN]
         // each thread computes [TM, TK] x [TK, TN]
         int warp_id = threadIdx.x / warpSize;
+        int warp_k_offset = (warp_id % WarpK) * ThreadK;
+        int warp_m_offset = ((warp_id / WarpK) % WarpM) * ThreadM;
+        int warp_n_offset = ((warp_id / WarpK) / WarpM) * ThreadN;
         for (int wm = 0; wm < BlockM; wm += WarpM * ThreadM * TM) {
             for (int wn = 0; wn < BlockN; wn += WarpN * ThreadN * TN) {
                 for (int wk = 0; wk < BlockK; wk += WarpK * ThreadK * TK) {
                     
                     float regs_a[TM][TK];
                     float regs_b[TK][TN];
-                    int warp_k_offset = (warp_id % WarpK) * ThreadK;
-                    int warp_m_offset = (warp_id / WarpK) * ThreadM;
-                    int warp_n_offset = (warp_id / WarpK / WarpM) * ThreadN;
 
                     int lane = threadIdx.x % warpSize;
 
                     int thread_k_offset = lane % ThreadK + warp_k_offset * TK + wk;
-                    int thread_m_offset = lane / ThreadK + warp_m_offset * TM + wm;
-                    
+                    int thread_m_offset = (lane / ThreadK) % ThreadM + warp_m_offset * TM + wm;
+                    int thread_n_offset = (lane / ThreadK / ThreadM) + warp_n_offset * TN + wn;
 
+                    // load into registers
+                    for (int im = 0; im < TM; im++) {
+                        for (int ik = 0; ik < TK; ik++) {
+                            regs_a[im][ik] = sA[(thread_m_offset + im) * BlockK + thread_k_offset + ik];
+                        }
+                    }
+                    for (int in = 0; in < TN; in++) {
+                        for (int ik = 0; ik < TK; ik++) {
+                            regs_b[ik][in] = sB[(thread_k_offset + ik) * BlockN + thread_n_offset + in];
+                        }
+                    }
+
+                    // mma
+                    int wmr = wm / (WarpM * ThreadM * TM);
+                    int wnr = wn / (WarpN * ThreadN * TN);
+                    for (int im = 0; im < TM; im++) {
+                        for (int in = 0; in < TN; in++) {
+                            for (int ik = 0; ik < TK; ik++) {
+                                regs_c[wmr][wnr][im][in] += regs_a[im][ik] * regs_b[ik][in];
+                            }
+                        }
+                    }
+                    
 
                 }
             }
         }
+        __syncthreads();
     }
 
+    if (ThreadK > 1) {
+        // we need to reduce within the warp
+        constexpr int len_c = WM_REP * WN_REP * TM * TN;
+        float* rc = (float*) regs_c;
+        for (int i = 0; i < len_c; ++i) {
+            for (int k = 1; k < ThreadK; k *= 2) {
+                rc[i] += __shfl_xor(rc[i], k);
+            }
+        }
+    }
+
+    float* sC = smem;
+
+    // load into sC[BlockM, BlockN]
+    {
+        int warp_id = threadIdx.x / warpSize;
+        int warp_k_offset = (warp_id % WarpK) * ThreadK;
+        int warp_m_offset = ((warp_id / WarpK) % WarpM) * ThreadM;
+        int warp_n_offset = ((warp_id / WarpK) / WarpM) * ThreadN;
+        for (int wm = 0; wm < BlockM; wm += WarpM * ThreadM * TM) {
+            for (int wn = 0; wn < BlockN; wn += WarpN * ThreadN * TN) {
+                int lane = threadIdx.x % warpSize;
+                if (lane % ThreadK == 0) {
+                    int thread_m_offset = (lane / ThreadK) % ThreadM + warp_m_offset * TM + wm;
+                    int thread_n_offset = (lane / ThreadK / ThreadM) + warp_n_offset * TN + wn;
+                    int wmr = wm / (WarpM * ThreadM * TM);
+                    int wnr = wn / (WarpN * ThreadN * TN);
+                    for (int im = 0; im < TM; im++) {
+                        for (int in = 0; in < TN; in++) {
+                            sC[(thread_m_offset + im) * BlockN + thread_n_offset + in] = regs_c[wmr][wnr][im][in];
+                        }
+                    }
+                }
+            }
+        }
+        __syncthreads();
+    }
+
+    // copy back to global
+    {
+        static_assert(nthreads >= BlockN, "");
+        int thread_m = threadIdx.x / BlockN;
+        int thread_n = threadIdx.x % BlockN;
+        for (int m = 0; m < BlockM; m += nthreads / BlockN) {
+            int coord_m = blockIdx.x * BlockM + thread_m + m;
+            int coord_n = blockIdx.y * BlockN + thread_n;
+            bool inbounds = coord_m < M && coord_n < N;
+            if (inbounds) {
+                c[coord_m * N + coord_n] = sC[thread_m * BlockN + thread_n];
+            }
+        }
+    }
+}
+
+
+#ifndef LAUNCH_NAME
+#define LAUNCH_NAME simt_gemm
+#endif
+
+#ifndef TYPE
+#define TYPE float
+#endif
+
+#ifndef BlockM
+#define BlockM 128
+#endif
+
+#ifndef BlockK
+#define BlockK 32
+#endif
+
+#ifndef BlockN
+#define BlockN 64
+#endif
+
+#ifndef WarpM
+#define WarpM 4
+#endif
+
+#ifndef WarpN
+#define WarpN 2
+#endif
+
+#ifndef ThreadM
+#define ThreadM 8
+#endif
+
+#ifndef ThreadK
+#define ThreadK 1
+#endif
+
+#ifndef ThreadN
+#define ThreadN 8
+#endif
+
+#ifndef TM
+#define TM 4
+#endif
+
+#ifndef TK
+#define TK 4
+#endif
+
+#ifndef TN
+#define TN 4
+#endif
+
+bool LAUNCH_NAME(float* a, float* b, float* c, int m, int k, int n) {
+
+    hipDeviceProp_t prop;
+    hipGetDeviceProperties(&prop, 0);
+    int warp_size = prop.warpSize;
+    int smem = prop.sharedMemPerBlock;
+    int regs = prop.regsPerBlock;
+
+    if (warp_size != ThreadK * ThreadM * ThreadN) {
+        printf("platform warp_size %d != ThreadK * ThreadM * ThreadN (%d, %d, %d)\n", warp_size, ThreadK, ThreadM, ThreadN);
+        return false;
+    }
+
+    dim3 grid(cdiv(m, BlockM), cdiv(n, BlockN));
+    dim3 block(WarpM * WarpN * warpSize);
+
+    int used_smem = BlockM * BlockK * sizeof(TYPE) + BlockK * BlockN * sizeof(TYPE);
+    used_smem = max(used_smem, BlockM * BlockN * sizeof(TYPE));
+    if (used_smem > smem) {
+        printf("smem overflow: %d > %d\n", used_smem, smem);
+        return false;
+    }
+
+    int used_regs = sizeof(TYPE) * (TM * TK + TK * TN + TM * TN) * WarpM * WarpN;
+    if (used_regs > regs) {
+        printf("regs overflow: %d > %d\n", used_regs, regs);
+        return false;
+    }
+
+    auto kernel = simt_gemm_kernel<BlockM, BlockK, BlockN, WarpM, WarpN, ThreadM, ThreadK, ThreadN, TM, TK, TN>; 
+    hipLaunchKernelGGL(kernel, grid, block, 0, 0, a, b, c, m, n, k);
+    
+    // check error
+    auto error = hipGetLastError();
+    if (error != hipSuccess) {
+        printf("Error: %s\n", hipGetErrorString(error));
+        return false;
+    }
+
+    return true;
 }

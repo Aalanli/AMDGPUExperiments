@@ -125,6 +125,27 @@ HasMFMA_bf16_original      0      0      0      0      1      1      0      0   
              VgprBank      0      0      0      0      0      0      0      0      0       1       1       1       1       1       1       1       1 
      Waitcnt0Disabled      0      0      0      0      1      1      1      1      1       0       0       0       0       0       0       0       0
 ```
+
+[Inline Assembly Example](https://github.com/ROCm-Developer-Tools/HIP/tree/master/samples/2_Cookbook/10_inline_asm)
+[Inline Assembly Kernel Example](https://github.com/ROCm-Developer-Tools/LLVM-AMDGPU-Assembler-Extra/blob/master/examples/gfx8/ds_bpermute.s)
+
+```asm
+ asm volatile ("v_mov_b32_e32 %0, %1" : "=v" (out[x*width + y]) : "v" (in[y*width + x]));
+```
+
+v refers to VGPR register
+=v refers to assignment of this register
+
+[Assembly Crosslane ops](https://gpuopen.com/learn/amd-gcn-assembly-cross-lane-operations/)
+```asm
+ds_permute_b32 dest, addr, src [offset:addr_offset] // push to dest
+ds_bpermute_b32 dest, addr, src [offset:addr_offset] // pull from src
+```
+
+Haha apparently cuda equivalents are in `#include <hip/amd_detail/amd_warp_functions.h>`
+So no need to write inline assembly to replicate cuda warp shuffles
+
+
 ## MISC
 **Torch HIP Semantics**
 https://pytorch.org/docs/stable/notes/hip.html
