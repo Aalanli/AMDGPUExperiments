@@ -62,7 +62,7 @@ int main(int argc, char** argv)
     const rocblas_int N = std::stoi(argv[3]);
 
     const float hAlpha = 1.0f;
-    const float hBeta  = 0.0f;
+    const float hBeta  = 1.0f;
 
     const rocblas_operation transA = rocblas_operation_none;
     const rocblas_operation transB = rocblas_operation_none;
@@ -150,8 +150,8 @@ int main(int argc, char** argv)
         HIP_ASSERT(hipMalloc((void**)&dC, M * K * sizeof(rocblas_half)));
 
         rocblas_half a, b;
-        a.data = 0;
-        b.data = 0;
+        a.data = 1;
+        b.data = 1;
         hipEvent_t start, stop;
         hipEventCreate(&start);
         hipEventCreate(&stop);
