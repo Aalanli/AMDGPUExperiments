@@ -90,10 +90,13 @@ __device__ __host__ constexpr int load_factor(const int nthreads, const int min_
     return 1;
 }
 
+
+
 /// this function must be hit by all threads
-/// F is a function of type (int, int) -> T
-template <int NThreads, int WarpSize, typename T, int D1, int D2, typename F>
-__device__ __forceinline__ void load_smem(Tensor<T, D1, D2> &a, F&& f) {
+/// LoadF: (int, int) -> T
+/// StoreF: (int, int, T) -> void
+template <int NThreads, int WarpSize, typename T, int D1, int D2, typename LoadF, typename StoreF>
+__device__ __forceinline__ void coalesce_mem_2d(LoadF&& load_f, StoreF&& store_f) {
     int tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * blockDim.x * blockDim.y;
     // half warp should still be fine for global loads
     constexpr int min_contiguous = D2 % WarpSize == 0 ? WarpSize : WarpSize / 2;
@@ -101,22 +104,40 @@ __device__ __forceinline__ void load_smem(Tensor<T, D1, D2> &a, F&& f) {
     /// find how many threads to factor along the last dimension
     constexpr int factor = load_factor(NThreads, min_contiguous, D2);
     constexpr int factor_threads = factor * min_contiguous;
-    for (int i = 0; i < D1; i += NThreads / factor_threads) {
+    constexpr int stride = NThreads / factor_threads;
+    for (int i = 0; i < D1; i += stride) {
         for (int j = 0; j < D2; j += factor_threads) {
-            int tid_contiguous = tid % factor;
-            int tid_factor = tid / factor;
+            int tid_contiguous = tid % factor_threads;
+            int tid_factor = tid / factor_threads;
             int coord_i = i + tid_factor;
             int coord_j = j + tid_contiguous;
-            if ((NThreads / factor_threads) % D1 == 0) {
-                a[coord_i][coord_j] = f(coord_i, coord_j);        
+            if (D1 % stride == 0 && stride < D1) {
+                store_f(coord_i, coord_j, load_f(coord_i, coord_j));
             } else {
                 if (coord_i < D1) { // coord_j is always in bounds
-                    a[coord_i][coord_j] = f(coord_i, coord_j);
+                    store_f(coord_i, coord_j, load_f(coord_i, coord_j));
                 }
             }
         }
     }
 }
+
+/// F is a function of type (int, int) -> T
+template <int NThreads, int WarpSize, typename T, int D1, int D2, typename F>
+__device__ __forceinline__ void load_smem(Tensor<T, D1, D2> &a, F&& f) {
+    coalesce_mem_2d<NThreads, WarpSize, T, D1, D2>(f, [&](int i, int j, T v) {
+        a[i][j] = v;
+    });
+}
+
+/// F is a function of type (int, int) -> T
+template <int NThreads, int WarpSize, typename T, int D1, int D2, typename F>
+__device__ __forceinline__ void store_gmem(Tensor<T, D1, D2> &a, F&& f) {
+    coalesce_mem_2d<NThreads, WarpSize, T, D1, D2>([&](int i, int j) {
+        return a[i][j];
+    }, f);
+}
+
 
 template <int M, int K, int N>
 __device__ __forceinline__ void mma(float (&a)[M][K], float (&b)[K][N], float (&c)[M][N]) {
@@ -157,6 +178,19 @@ __device__ constexpr unsigned int next_power_of_2(const unsigned int a) {
     v |= v >> 16;
     v += 1;
     return v;
+}
+
+template <int D1, int D2>
+__device__ void debug_print_smem(Tensor<float, D1, D2> &a) {
+    if (blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0) {
+        for (int i = 0; i < D1; ++i) {
+            for (int j = 0; j < D2; ++j) {
+                printf("%f ", a[i][j]);
+            }
+            printf("\n");
+        }
+        printf("\n");
+    }
 }
 
 __device__ void debug_print_block(float v, dim3 strides) {
@@ -204,7 +238,7 @@ KERNEL(WarpM * /*WarpK* */ WarpN * warpSize) simt_gemm_kernel(
     // stage 1. each block handles A[BlockM, BlockK] x B[BlockK, BlockN]
     // stage 2. each warp handles A[ThreadM, BlockK / WarpK] x B[BlockK / WarpK, ThreadN]
     // stage 3. each thread handles A[TM, TK] x B[TK, TN]
-    constexpr int smem_elems = Max<BlockM * BlockK + BlockK * BlockN, BlockN * BlockM>::value;
+    constexpr int smem_elems = Max<BlockM * (BlockK + 1) + BlockK * (BlockN + 1), (BlockN + 1) * BlockM>::value;
     __shared__ float smem[smem_elems];
 
     static_assert(BlockK >= WarpK * ThreadK * TK,"");
@@ -225,71 +259,31 @@ KERNEL(WarpM * /*WarpK* */ WarpN * warpSize) simt_gemm_kernel(
         }
     }
     
-    Tensor<float, BlockM, BlockK> sA(smem);
-    Tensor<float, BlockK, BlockN> sB(smem + BlockM * BlockK);
+    Tensor<float, BlockM, BlockK + 1> sA(smem);
+    Tensor<float, BlockK, BlockN + 1> sB(smem + BlockM * (BlockK + 1));
     // float* sA = smem;
     // float* sB = smem + BlockM * BlockK;
 
     for (int kb = 0; kb < (K + BlockK - 1) / BlockK; kb++) {
         // each block computes [BlockM, BlockK] x [BlockK, BlockN]
         // load a
-        load_smem<nthreads, warpSize>(sA, [&](int i, int j) {
+        coalesce_mem_2d<nthreads, warpSize, float, BlockM, BlockK>([&](int i, int j) {
             int coord_m = (blockIdx.x * BlockM) + i;
             int coord_k = kb * BlockK + j;
             bool inbounds = coord_m < M && coord_k < K;
             return inbounds ? a[coord_m * K + coord_k] : 0;
+        }, [&](int i, int j, float v) {
+            sA[i][j] = v;
         });
 
-        load_smem<nthreads, warpSize>(sB, [&](int i, int j) {
+        coalesce_mem_2d<nthreads, warpSize, float, BlockK, BlockN>([&](int i, int j) {
             int coord_k = kb * BlockK + i;
             int coord_n = blockIdx.y * BlockN + j;
             bool inbounds = coord_k < K && coord_n < N;
             return inbounds ? b[coord_k * N + coord_n] : 0;
+        }, [&](int i, int j, float v) {
+            sB[i][j] = v;
         });
-
-        // {
-        //     static_assert(nthreads >= BlockK && nthreads % BlockK == 0, "");
-        //     int thread_m = threadIdx.x / BlockK;
-        //     int thread_k = threadIdx.x % BlockK;
-        //     for (int m = 0; m < BlockM; m += nthreads / BlockK) {
-        //         int coord_m = (blockIdx.x * BlockM) + thread_m + m;
-        //         int coord_k = kb * BlockK + thread_k;
-        //         bool inbounds = coord_m < M && coord_k < K;
-        //         sA[(thread_m + m)][thread_k] = inbounds ? a[coord_m * K + coord_k] : 0;
-        //     }
-        // }
-        // load b
-        // {
-        //     static_assert(nthreads >= BlockN && nthreads % BlockN == 0, "");
-        //     int thread_k = threadIdx.x / BlockN;
-        //     int thread_n = threadIdx.x % BlockN;
-        //     for (int k = 0; k < BlockK; k += nthreads / BlockN) {
-        //         int coord_k = kb * BlockK + thread_k + k;
-        //         int coord_n = blockIdx.y * BlockN + thread_n;
-        //         bool inbounds = coord_k < K && coord_n < N;
-        //         sB[(thread_k + k)][thread_n] = inbounds ? b[coord_k * N + coord_n] : 0;
-        //     }
-        // }
-
-        __syncthreads();
-        if (blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0) {
-            // print smem
-            for (int i = 0; i < BlockK; i++) {
-                for (int j = 0; j < BlockM; j++) {
-                    printf("%f ", sA[j][i]);
-                }
-                printf("\n");
-            }
-            printf("\n");
-            // print sb
-            for (int i = 0; i < BlockN; i++) {
-                for (int j = 0; j < BlockK; j++) {
-                    printf("%f ", sB[j][i]);
-                }
-                printf("\n");
-            }
-        }
-
 
         __syncthreads();
         // now we have A[BlockM, BlockK] x B[BlockK, BlockN] in smem
@@ -301,8 +295,8 @@ KERNEL(WarpM * /*WarpK* */ WarpN * warpSize) simt_gemm_kernel(
         int warp_k_offset = (warp_id % WarpK) * ThreadK;
         int warp_m_offset = ((warp_id / WarpK) % WarpM) * ThreadM;
         int warp_n_offset = ((warp_id / WarpK) / WarpM) * ThreadN;
-        for (int wm = 0; wm < BlockM; wm += WarpM * ThreadM * TM) {
-            for (int wn = 0; wn < BlockN; wn += WarpN * ThreadN * TN) {
+        for (int wm = 0; wm < WM_REP; ++wm) {
+            for (int wn = 0; wn < WN_REP; ++wn) {
                 for (int wk = 0; wk < BlockK; wk += WarpK * ThreadK * TK) {
                     
                     float regs_a[TM][TK];
@@ -310,9 +304,9 @@ KERNEL(WarpM * /*WarpK* */ WarpN * warpSize) simt_gemm_kernel(
 
                     int lane = threadIdx.x % warpSize;
 
-                    int thread_k_offset = lane % ThreadK + warp_k_offset * TK + wk;
-                    int thread_m_offset = (lane / ThreadK) % ThreadM + warp_m_offset * TM + wm;
-                    int thread_n_offset = (lane / ThreadK / ThreadM) + warp_n_offset * TN + wn;
+                    int thread_k_offset = (lane % ThreadK + warp_k_offset) * TK + wk;
+                    int thread_m_offset = ((lane / ThreadK) % ThreadM + warp_m_offset + wm * WarpM * ThreadM) * TM;
+                    int thread_n_offset = ((lane / ThreadK / ThreadM) + warp_n_offset + wn * WarpN * ThreadN) * TN;
 
                     // load into registers
                     for (int im = 0; im < TM; im++) {
@@ -327,17 +321,7 @@ KERNEL(WarpM * /*WarpK* */ WarpN * warpSize) simt_gemm_kernel(
                     }
 
                     // mma
-                    int wmr = wm / (WarpM * ThreadM * TM);
-                    int wnr = wn / (WarpN * ThreadN * TN);
-                    for (int im = 0; im < TM; im++) {
-                        for (int in = 0; in < TN; in++) {
-                            for (int ik = 0; ik < TK; ik++) {
-                                regs_c[wmr][wnr][im][in] += regs_a[im][ik] * regs_b[ik][in];
-                            }
-                        }
-                    }
-                    
-
+                    mma(regs_a, regs_b, regs_c[wm][wn]);
                 }
             }
         }
@@ -356,32 +340,31 @@ KERNEL(WarpM * /*WarpK* */ WarpN * warpSize) simt_gemm_kernel(
         }
     }
 
-    float* sC = smem;
+    Tensor<float, BlockM, BlockN + 1> sC(smem);
+    // float* sC = smem;
 
-    {
-        int tid = threadIdx.x;
-        while (tid < BlockM * BlockN) {
-            sC[tid] = 1.0f;
-            tid += nthreads;
-        }
-    }
+    // {
+    //     load_smem<nthreads, warpSize>(sC, [](int i, int j) {
+    //         return 1.0f;
+    //     });
+    //     __syncthreads();
+    // }
     // load into sC[BlockM, BlockN]
     {
         int warp_id = threadIdx.x / warpSize;
         int warp_k_offset = (warp_id % WarpK) * ThreadK;
         int warp_m_offset = ((warp_id / WarpK) % WarpM) * ThreadM;
         int warp_n_offset = ((warp_id / WarpK) / WarpM) * ThreadN;
-        for (int wm = 0; wm < BlockM; wm += WarpM * ThreadM * TM) {
-            for (int wn = 0; wn < BlockN; wn += WarpN * ThreadN * TN) {
+        for (int wm = 0; wm < WM_REP; ++wm) {
+            for (int wn = 0; wn < WN_REP; ++wn) {
                 int lane = threadIdx.x % warpSize;
                 if (lane % ThreadK == 0) {
-                    int thread_m_offset = (lane / ThreadK) % ThreadM + warp_m_offset * TM + wm;
-                    int thread_n_offset = (lane / ThreadK / ThreadM) + warp_n_offset * TN + wn;
-                    int wmr = wm / (WarpM * ThreadM * TM);
-                    int wnr = wn / (WarpN * ThreadN * TN);
+                    int thread_m_offset = ((lane / ThreadK) % ThreadM + warp_m_offset + wm * WarpM * ThreadM) * TM;
+                    int thread_n_offset = ((lane / ThreadK / ThreadM) + warp_n_offset + wn * WarpN * ThreadN) * TN;
+                    
                     for (int im = 0; im < TM; im++) {
                         for (int in = 0; in < TN; in++) {
-                            sC[(thread_m_offset + im) * BlockN + thread_n_offset + in] = regs_c[wmr][wnr][im][in];
+                            sC[thread_m_offset + im][thread_n_offset + in] = regs_c[wm][wn][im][in];
                         }
                     }
                 }
@@ -390,23 +373,20 @@ KERNEL(WarpM * /*WarpK* */ WarpN * warpSize) simt_gemm_kernel(
         __syncthreads();
     }
 
-    // copy back to global
-    {
-        static_assert(nthreads >= BlockN, "");
-        int thread_m = threadIdx.x / BlockN;
-        int thread_n = threadIdx.x % BlockN;
-        for (int m = 0; m < BlockM; m += nthreads / BlockN) {
-            int coord_m = blockIdx.x * BlockM + thread_m + m;
-            int coord_n = blockIdx.y * BlockN + thread_n;
-            bool inbounds = coord_m < M && coord_n < N;
-            // if (blockIdx.x == 0 && blockIdx.y == 0)
-            //     debug_print_block(sC[thread_m * BlockN + thread_n], dim3(ThreadM, ThreadN, 1));
-            if (inbounds) {
+    // debug_print_smem(sC);
+    // __syncthreads();
 
-                c[coord_m * N + coord_n] = sC[thread_m * BlockN + thread_n];
-            }
+    // copy back to global
+    coalesce_mem_2d<nthreads, warpSize, float, BlockM, BlockN>([&](int i, int j) {
+        return sC[i][j];
+    }, [&](int i, int j, float v) {
+        int coord_m = (blockIdx.x * BlockM) + i;
+        int coord_n = blockIdx.y * BlockN + j;
+        bool inbounds = coord_m < M && coord_n < N;
+        if (inbounds) {
+            c[coord_m * N + coord_n] = v;
         }
-    }
+    });
 }
 
 
