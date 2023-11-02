@@ -3,7 +3,7 @@ import torch
 from kernels import KernelHandler, KernelConfig
 from kernels import Bench
 
-kernel = KernelHandler(
+kernel_rocblas = KernelHandler(
     source_file='src/rocblas_gemm.cpp',
     compile_configs=[
         KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 16, 'WARPSZ_M': 32, 'WARPSZ_N': 8, 'READ_A_DIM': 16, 'READ_B_DIM': 64, 'TYPE': 'float'}),
@@ -27,10 +27,39 @@ def rocgemm(a: torch.Tensor, b: torch.Tensor, version: int = 1) -> torch.Tensor:
     assert len(a.shape) == len(b.shape) == 2
     m, k = a.shape
     n = b.shape[1]
-    c = torch.ones((m, n), device=a.device, dtype=a.dtype) * -1
-    kernel(a, b, c, m=m, k=k, n=n, version=version)
+    c = torch.empty((m, n), device=a.device, dtype=a.dtype)
+    kernel_rocblas(a, b, c, m=m, k=k, n=n, version=version)
     return c
 
+
+kernel_simt = KernelHandler(
+    source_file='src/simt_gemm.cpp',
+    compile_configs=[
+        KernelConfig({'BlockM': 128, 'BlockK': 32, 'BlockN': 64, 'WarpM': 4, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'})
+    ],
+    keys=['m', 'k', 'n'],
+    platform='nvidia',
+    disable_benchmark=True
+)
+
+def simt_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    assert a.shape[1] == b.shape[0]
+    assert len(a.shape) == len(b.shape) == 2
+    m, k = a.shape
+    n = b.shape[1]
+    c = torch.ones((m, n), device=a.device, dtype=a.dtype) * -1
+    kernel_simt(a, b, c, m=m, k=k, n=n)
+    return c
+
+a = torch.arange(0, 64, device='cuda')[None, :] * 64 + torch.arange(0, 64, device='cuda')[:, None]
+a = a.float()
+b = torch.ones([64, 64], device='cuda')
+c1 = a @ b
+c = simt_gemm(a, b)
+err = (c1 - c).abs()
+print(c)
+print(err)
+print(err.max())
 
 # %%
 if __name__ == '__main__':
@@ -74,4 +103,4 @@ if __name__ == '__main__':
     data.show_plot()
 
 # %%
-kernel.kernel_map
+kernel_rocblas.kernel_map
