@@ -134,7 +134,7 @@ if __name__ == '__main__':
         x_name='(m, k, n)',
     )
     # bench.bench(bench_rocgemm1)
-    bench.bench(bench_rocgemm2, 'rocblas')
+    bench.bench(bench_rocgemm2, 'naive')
     bench.bench(bench_blas, 'blas')
     bench.bench(bench_simtgemm, 'simt')
     data = bench.run()

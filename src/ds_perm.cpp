@@ -54,7 +54,7 @@ __global__ void test_warp_reduce_shfl_xor(int* a, int* b) {
 }
 
 
-int main() {
+int test() {
     int in[64];
     int warpsz = 32;
     for (int i = 0; i < 64; i++) {

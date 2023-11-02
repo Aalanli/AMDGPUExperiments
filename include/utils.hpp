@@ -28,7 +28,7 @@
 
 #define KERNEL(lb_) static __global__ __launch_bounds__((lb_)) void
 
-void __global__ init_kernel(float* __restrict__ a, float v, int n) {
+void __global__ inline init_kernel(float* __restrict__ a, float v, int n) {
     const int stride = blockDim.x * gridDim.x;
     int tid = threadIdx.x + blockIdx.x * blockDim.x;
     while (tid < n) {
@@ -37,14 +37,14 @@ void __global__ init_kernel(float* __restrict__ a, float v, int n) {
     }
 }
 
-void fill(float* __restrict__ a, float v, int n) {
+void inline fill(float* __restrict__ a, float v, int n) {
     int n_grid = (n + 1023) / 1024;
     hipLaunchKernelGGL(init_kernel, dim3(n_grid), dim3(1024), 0, 0, a, v, n);
 }
 
 
 template <typename F>
-float bench(F&& func, int warmup, int iter) {
+float inline bench(F&& func, int warmup, int iter) {
     hipEvent_t starts[iter];
     hipEvent_t   ends[iter];
 
@@ -88,6 +88,6 @@ float bench(F&& func, int warmup, int iter) {
     return times / iter;
 }
 
-int cdiv(int a, int b) {
+int inline cdiv(int a, int b) {
     return (a + b - 1) / b;
 }
