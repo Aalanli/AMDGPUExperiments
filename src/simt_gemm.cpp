@@ -90,6 +90,11 @@ __device__ __host__ constexpr int load_factor(const int nthreads, const int min_
     return 1;
 }
 
+__device__ __host__ constexpr int calc_min_contiguous(const int dim, const int warp_size) {
+    int min_contiguous = dim % warp_size == 0 ? warp_size : warp_size / 2;
+    min_contiguous = dim % min_contiguous == 0 ? min_contiguous : min_contiguous / 2;
+    return min_contiguous;
+}
 
 
 /// this function must be hit by all threads
@@ -98,8 +103,8 @@ __device__ __host__ constexpr int load_factor(const int nthreads, const int min_
 template <int NThreads, int WarpSize, typename T, int D1, int D2, typename LoadF, typename StoreF>
 __device__ __forceinline__ void coalesce_mem_2d(LoadF&& load_f, StoreF&& store_f) {
     int tid = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z * blockDim.x * blockDim.y;
-    // half warp should still be fine for global loads
-    constexpr int min_contiguous = D2 % WarpSize == 0 ? WarpSize : WarpSize / 2;
+    // quarter warp should still be fine for global loads
+    constexpr int min_contiguous = calc_min_contiguous(D2, WarpSize);
     static_assert(D2 % min_contiguous == 0, "last dimension is not contiguous enough");
     /// find how many threads to factor along the last dimension
     constexpr int factor = load_factor(NThreads, min_contiguous, D2);
@@ -141,8 +146,11 @@ __device__ __forceinline__ void store_gmem(Tensor<T, D1, D2> &a, F&& f) {
 
 template <int M, int K, int N>
 __device__ __forceinline__ void mma(float (&a)[M][K], float (&b)[K][N], float (&c)[M][N]) {
+    #pragma unroll
     for (int m = 0; m < M; ++m) {
+        #pragma unroll
         for (int n = 0; n < N; ++n) {
+            #pragma unroll
             for (int k = 0; k < K; ++k) {
                 c[m][n] += a[m][k] * b[k][n];
             }

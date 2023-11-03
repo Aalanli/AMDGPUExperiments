@@ -1,5 +1,7 @@
 # %%
-from typing import List, Dict, Any, Optional
+from dataclasses import dataclass
+import multiprocessing
+from typing import List, Dict, Any, Optional, Sequence, Iterable, Callable, Set
 from tqdm import tqdm
 import hashlib
 import os
@@ -10,7 +12,8 @@ import ctypes
 import torch
 
 
-def build(source, out_path, amd=True, **kwargs):
+def build(ignore_error, source, out_path, amd=True, **kwargs):
+    # print(f'Building {source} to {out_path}')
     args = [f' -D {k}={v} ' for k, v in kwargs.items()]
     args = ''.join(args) + '-fPIC'
     assert os.path.exists(source) and os.path.isfile(source)
@@ -19,17 +22,19 @@ def build(source, out_path, amd=True, **kwargs):
     file_ext = os.path.splitext(file)[1]
     if amd:
         assert file_ext == '.cpp', f'AMD kernel must be a cpp file, got {file_ext}'
-        subprocess.run(['hipcc', '-O3', '-c', source, args, '-o', out_path, '-I', 'include/'], check=True)
-        subprocess.run(['hipcc', '-shared', '-o', out_path, out_path], check=True)
+        subprocess.run(['hipcc', '-O3', '-c', source, args, '-o', out_path + '_', '-I', 'include/'], check=True, shell=False)
+        subprocess.run(['hipcc', '-shared', '-o', out_path + '_', out_path], check=True, shell=False)
     elif file_ext == '.cpp':
         env = os.environ.copy()
         env['HIP_PLATFORM'] = 'nvidia'
-        subprocess.run(['hipcc', '-O3', '-c', source, '--compiler-options', args, '-o', out_path, '-I', 'include/'], check=True, env=env)
-        subprocess.run(['hipcc', '-shared', '-o', out_path, out_path], check=True)
+        std_err = subprocess.DEVNULL if ignore_error else None
+        subprocess.run(['hipcc', '-O3', '-c', source, '--compiler-options', args, '-o', out_path, '-I', 'include/'], check=True, env=env, shell=False, stdout=subprocess.DEVNULL, stderr=std_err)
+        subprocess.run(['hipcc', '-shared', '-o', out_path, out_path], check=True, shell=False)
     elif file_ext == '.cu':
-        subprocess.run(['nvcc', '-O3', '--compiler-options', args, '-o', out_path, '--shared', source], check=True)
+        subprocess.run(['nvcc', '-O3', '--compiler-options', args, '-o', out_path, '--shared', source], check=True, shell=False)
     else:
         raise RuntimeError(f'Unknown file extension {file_ext}')
+
 
 def do_bench(fn, warmup=25, rep=100, grad_to_none=None,
              quantiles=None,
@@ -113,7 +118,6 @@ def is_fundamental_type(a):
     return isinstance(a, (int, float, str, bool))
 
 CACHE_DIR = '.cache/hip_kernels/'
-
 class KernelConfig:
     def __init__(self, config: Dict[str, Any]):
         self.config = config
@@ -139,6 +143,63 @@ class KernelConfig:
             name += f'{k}_{res}_'
         return 'launch_' + name[:-1]
 
+@dataclass
+class BuildConfig:
+    source_file: str
+    amd: bool
+    compile_params: Dict[str, Any]
+    out_path: str
+
+def build_worker(config: BuildConfig, ignore_errors=False):
+    if not ignore_errors:
+        build(False, config.source_file, config.out_path, amd=config.amd, **config.compile_params)
+        return True
+    try:
+        build(True, config.source_file, config.out_path, amd=config.amd, **config.compile_params)
+    except Exception as e:
+        print(f'Failed to compile {config.compile_params}: \ndue to {e}')      
+        return False
+    return True  
+
+
+class JobQueue:
+    def __init__(self, func, jobs: Sequence[Any] = tuple()):
+        self.func: Callable = func
+        self.jobs: Sequence[Any] = jobs
+
+
+_job_queue: Optional[JobQueue] = None
+
+
+def _wrapped_func(job_index):
+    """
+    Wrapper function for parallel_imap.
+
+    We use this function to avoid pickling the jobs.
+    """
+    assert job_index < len(_job_queue.jobs)
+
+    job = _job_queue.jobs[job_index]
+    func = _job_queue.func
+
+    return func(job)
+
+
+def parallel_imap(func: Callable, jobs: Sequence[Any], num_workers: Optional[int] = None) -> Iterable[Any]:
+    global _job_queue
+
+    if _job_queue is not None:
+        raise RuntimeError('Cannot call parallel_map recursively.')
+
+    _job_queue = JobQueue(func, jobs)
+
+    if num_workers is None:
+        num_workers = os.cpu_count()
+
+    with multiprocessing.Pool(num_workers) as pool:
+        yield from pool.imap(_wrapped_func, range(len(jobs)))
+
+    _job_queue = None
 
 class KernelHandler:
     def __init__(
@@ -148,7 +209,9 @@ class KernelHandler:
             keys: List[str], 
             platform: str = 'amd',
             compile_params: Optional[Dict[str, Any]] = None,
-            disable_benchmark: bool = False
+            disable_benchmark: bool = False,
+            parallel_compile: bool = True,
+            ignore_compile_errors: bool = True
         ):
         """
         Invariants that must be satisfied by the source file:
@@ -188,27 +251,59 @@ class KernelHandler:
         self.so_name2_config: Dict[str, KernelConfig] = {
             config.so_name(): config for config in compile_configs
         }
+        self.failed_to_compile: Set[str] = set()
+        if os.path.exists(os.path.join(dir_path, 'failed.json')):
+            with open(os.path.join(dir_path, 'failed.json'), 'r') as f:
+                self.failed_to_compile: Set[str] = set(json.load(f))
         need_to_compile = list(filter(
-            lambda x: not os.path.exists(os.path.join(dir_path, x)), self.so_name2_config.keys()
+            lambda x: not os.path.exists(os.path.join(dir_path, x)) and x not in self.failed_to_compile, self.so_name2_config.keys()
         ))
         extra_params = {k: str(v) for k, v in compile_params.items()} if compile_params is not None else {}
         if len(need_to_compile) > 0:
-            for so_name in tqdm(need_to_compile, desc='Compiling kernels'):
+            compile_items: List[BuildConfig] = []
+            for so_name in need_to_compile:
                 config = self.so_name2_config[so_name]
                 assert len(config.config.keys() & extra_params.keys()) == 0, f'Extra params {extra_params.keys()} overlap with config keys {config.config.keys()}'
                 config.config.update(extra_params)
                 launch_name = config.launch_name()
-                build(self.source_file, os.path.join(dir_path, so_name), amd=platform=='amd', LAUNCH_NAME=launch_name, **config.config)
+                compile_param = {}
+                compile_param.update(config.config)
+                compile_param['LAUNCH_NAME'] = launch_name
+
+                compile_items.append(BuildConfig(
+                    source_file=self.source_file,
+                    amd=platform=='amd',
+                    compile_params=compile_param,
+                    out_path=os.path.join(dir_path, so_name)
+                ))
+            
+            if parallel_compile:
+                res = list(tqdm(parallel_imap(lambda x: build_worker(x, ignore_compile_errors), compile_items), total=len(need_to_compile), desc='Compiling kernels'))
+            else:
+                res = [build_worker(config, ignore_compile_errors) for config in compile_items]
+            
+            for i in range(len(res)):
+                if not res[i]: # failed to compile
+                    self.failed_to_compile.add(need_to_compile[i])     
+                if res[i] and need_to_compile[i] in self.failed_to_compile:
+                    self.failed_to_compile.remove(need_to_compile[i])
         
+        with open(os.path.join(dir_path, 'failed.json'), 'w') as f:
+            json.dump(list(self.failed_to_compile), f)
+
         # so_name -> so_launch_func
         self.launch_funcs = {}
         for so_name, config in self.so_name2_config.items():
+            lib_path = os.path.join(dir_path, so_name)
+            if not os.path.exists(lib_path) or so_name in self.failed_to_compile:
+                continue
             lib = ctypes.cdll.LoadLibrary(os.path.join(dir_path, so_name))
             assert hasattr(lib, config.launch_name()), f'Library {so_name} does not have launch function {config.launch_name()}'
             launch_func = getattr(lib, config.launch_name())
             launch_func.restype = ctypes.c_bool
             self.launch_funcs[so_name] = launch_func
-        
+        if len(self.launch_funcs) == 0:
+            raise RuntimeError(f'No kernels compiled for {self.source_file}')
         shutil.copy(self.source_file, dir_path)
 
         # map from runtime-key to best so_name

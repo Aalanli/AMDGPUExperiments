@@ -31,41 +31,75 @@ def rocgemm(a: torch.Tensor, b: torch.Tensor, version: int = 1) -> torch.Tensor:
     kernel_rocblas(a, b, c, m=m, k=k, n=n, version=version)
     return c
 
+def gen_configs():
+    for (bwm, bwn) in [(1, 1), (2, 2), (1, 2), (2, 1), (2, 4), (4, 2)]:
+        for (wm, wn, wk) in [(4, 8, 1), (2, 16, 1), (16, 2, 1), (8, 4, 1)]:
+            for (tm, tn, tk) in [(4, 4, 4), (4, 4, 2), (4, 4, 1), (2, 2, 2), (2, 2, 1)]:
+                for block_k in [32, 64]:
+                    block_m = bwm * wm * tm
+                    block_n = bwn * wn * tn
+
+                    for (block_m, block_n) in [(block_m, block_n), (block_m * 2, block_n), (block_m, block_n * 2), (block_m * 2, block_n * 2)]:
+                        smem = max(block_m * block_k + block_k * block_n, block_m * block_n) * 4
+                        regs = (tk * (tm + tn) + tm * tn) * 4 + 32
+                        if regs > 255:
+                            continue
+                        if smem > 0xc000:
+                            continue
+                        yield KernelConfig({
+                            'BlockM': block_m,
+                            'BlockK': block_k,
+                            'BlockN': block_n,
+                            'WarpM': bwm,
+                            'WarpN': bwn,
+                            'ThreadM': wm,
+                            'ThreadK': wk,
+                            'ThreadN': wn,
+                            'TM': tm,
+                            'TN': tn,
+                            'TK': tk,
+                            'TYPE': 'float'
+                        })
+
+hand_picked_configs = [
+    KernelConfig({'BlockM': 128, 'BlockK': 32, 'BlockN': 64,  'WarpM': 4, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 128, 'BlockK': 32, 'BlockN': 64,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 64,  'BlockK': 32, 'BlockN': 128, 'WarpM': 2, 'WarpN': 4, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 64,  'BlockK': 32, 'BlockN': 128, 'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+
+    KernelConfig({'BlockM': 128, 'BlockK': 32, 'BlockN': 32,  'WarpM': 4, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 64,  'BlockK': 32, 'BlockN': 64,  'WarpM': 2, 'WarpN': 4, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 64,  'BlockK': 32, 'BlockN': 32,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+    # KernelConfig({'BlockM': 64,  'BlockK': 16, 'BlockN': 128, 'WarpM': 2, 'WarpN': 4, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+    # KernelConfig({'BlockM': 64,  'BlockK': 16, 'BlockN': 128, 'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+
+    # KernelConfig({'BlockM': 64,  'BlockK': 16, 'BlockN': 64,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 64,  'BlockK': 32, 'BlockN': 64,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 64,  'BlockK': 64, 'BlockN': 64,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+    # KernelConfig({'BlockM': 64,  'BlockK': 128,'BlockN': 64,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+
+    # KernelConfig({'BlockM': 64,  'BlockK': 16, 'BlockN': 64,  'WarpM': 2, 'WarpN': 4, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 64,  'BlockK': 32, 'BlockN': 32,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 64,  'BlockK': 64, 'BlockN': 32,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+    # KernelConfig({'BlockM': 64,  'BlockK': 128,'BlockN': 64,  'WarpM': 2, 'WarpN': 4, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+
+    # KernelConfig({'BlockM': 64,  'BlockK': 16, 'BlockN': 64,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 64,  'BlockK': 32, 'BlockN': 64,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 64,  'BlockK': 64, 'BlockN': 64,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
+    # KernelConfig({'BlockM': 64,  'BlockK': 128,'BlockN': 64,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'})
+]
 
 kernel_simt = KernelHandler(
     source_file='src/simt_gemm.cpp',
-    compile_configs=[
-        KernelConfig({'BlockM': 128, 'BlockK': 32, 'BlockN': 64,  'WarpM': 4, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-        KernelConfig({'BlockM': 128, 'BlockK': 32, 'BlockN': 64,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-        KernelConfig({'BlockM': 64,  'BlockK': 32, 'BlockN': 128, 'WarpM': 2, 'WarpN': 4, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-        KernelConfig({'BlockM': 64,  'BlockK': 32, 'BlockN': 128, 'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-
-        KernelConfig({'BlockM': 128, 'BlockK': 32, 'BlockN': 32,  'WarpM': 4, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-        KernelConfig({'BlockM': 64,  'BlockK': 32, 'BlockN': 64,  'WarpM': 2, 'WarpN': 4, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-        KernelConfig({'BlockM': 64,  'BlockK': 32, 'BlockN': 32,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-        # KernelConfig({'BlockM': 64,  'BlockK': 16, 'BlockN': 128, 'WarpM': 2, 'WarpN': 4, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-        # KernelConfig({'BlockM': 64,  'BlockK': 16, 'BlockN': 128, 'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-
-        # KernelConfig({'BlockM': 64,  'BlockK': 16, 'BlockN': 64,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-        KernelConfig({'BlockM': 64,  'BlockK': 32, 'BlockN': 64,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-        KernelConfig({'BlockM': 64,  'BlockK': 64, 'BlockN': 64,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-        # KernelConfig({'BlockM': 64,  'BlockK': 128,'BlockN': 64,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-
-        # KernelConfig({'BlockM': 64,  'BlockK': 16, 'BlockN': 64,  'WarpM': 2, 'WarpN': 4, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-        KernelConfig({'BlockM': 64,  'BlockK': 32, 'BlockN': 32,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-        KernelConfig({'BlockM': 64,  'BlockK': 64, 'BlockN': 32,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-        # KernelConfig({'BlockM': 64,  'BlockK': 128,'BlockN': 64,  'WarpM': 2, 'WarpN': 4, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-
-        # KernelConfig({'BlockM': 64,  'BlockK': 16, 'BlockN': 64,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-        KernelConfig({'BlockM': 64,  'BlockK': 32, 'BlockN': 64,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-        KernelConfig({'BlockM': 64,  'BlockK': 64, 'BlockN': 64,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'}),
-        # KernelConfig({'BlockM': 64,  'BlockK': 128,'BlockN': 64,  'WarpM': 2, 'WarpN': 2, 'ThreadM': 8, 'ThreadK': 1, 'ThreadN': 4, 'TM': 4, 'TN': 4, 'TK': 4, 'TYPE': 'float'})
-    ],
+    compile_configs=list(gen_configs()),
     keys=['m', 'k', 'n'],
     platform='nvidia',
-    disable_benchmark=False
+    disable_benchmark=False,
+    ignore_compile_errors=True,
+    parallel_compile=True
 )
 
+# %%
 def simt_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     assert a.shape[1] == b.shape[0]
     assert len(a.shape) == len(b.shape) == 2
@@ -77,6 +111,11 @@ def simt_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 
 
 if __name__ == '__main__':
+    import hidet
+    hidet.option.debug_cache_tuning()
+    hidet.option.search_space(2)
+    hidet.option.cache_dir('./outs/simt_matmul')
+
     d = 64
     a = torch.arange(0, 64, device='cuda')[None, :] * 64 + torch.arange(0, 64, device='cuda')[:, None]
     a = a.float()
@@ -97,6 +136,8 @@ if __name__ == '__main__':
     err = (a @ b - c).abs()
     print(err.max())
 
+# %%
+if __name__ == '__main__':
     def bench_rocgemm1(i, **kwargs):
         m, k, n = i
         a = torch.randn([m, k], device='cuda')
@@ -120,22 +161,31 @@ if __name__ == '__main__':
         a = torch.randn([m, k], device='cuda')
         b = torch.randn([k, n], device='cuda')
         return lambda: a @ b
-    # import hidet
-    # def bench_hidet(i, **kwargs):
-    #     m, n, k = i
-    #     a = hidet.randn([m, k], device='cuda')
-    #     b = hidet.randn([k, n], device='cuda')
-        
     
-    square = [(m, m, m) for m in [32, 64, 128, 256, 512, 768, 1024]]
+    def bench_hidet(i, **kwargs):
+        m, n, k = i
+        a = hidet.from_torch(torch.randn([1, m, k], device='cuda'))
+        b = hidet.from_torch(torch.randn([1, k, n], device='cuda'))
+        a1 = hidet.symbol([1, 'm', 'k'], dtype='float32', device='cuda')
+        b1 = hidet.symbol([1, 'k', 'n'], dtype='float32', device='cuda')
+        from hidet.graph.ops.matmul.batch_matmul import batch_matmul
+        c = batch_matmul(a1, b1)
+        g = hidet.trace_from(c, [a1, b1])
+        g = hidet.graph.optimize(g)
+        g = g.build(space=2)
+
+        return lambda: g(a, b)
+    
+    square = [(m, m, m) for m in range(256, 2048 + 1024, 128)]
     mem_bound = [(1, m, m) for m in [32, 64, 128, 256, 512, 768, 1024]]
     bench = Bench(
         x_vals=square,
         x_name='(m, k, n)',
     )
     # bench.bench(bench_rocgemm1)
-    bench.bench(bench_rocgemm2, 'naive')
+    # bench.bench(bench_rocgemm2, 'naive')
     bench.bench(bench_blas, 'blas')
     bench.bench(bench_simtgemm, 'simt')
+    bench.bench(bench_hidet, 'hidet')
     data = bench.run()
     data.show_plot()
