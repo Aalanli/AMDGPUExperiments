@@ -20,6 +20,7 @@ def build(ignore_error, source, out_path, amd=True, **kwargs):
 
     file = os.path.basename(source)
     file_ext = os.path.splitext(file)[1]
+    std_err = subprocess.DEVNULL if ignore_error else None
     if amd:
         assert file_ext == '.cpp', f'AMD kernel must be a cpp file, got {file_ext}'
         subprocess.run(['hipcc', '-O3', '-c', source, args, '-o', out_path + '_', '-I', 'include/'], check=True, shell=False)
@@ -27,11 +28,10 @@ def build(ignore_error, source, out_path, amd=True, **kwargs):
     elif file_ext == '.cpp':
         env = os.environ.copy()
         env['HIP_PLATFORM'] = 'nvidia'
-        std_err = subprocess.DEVNULL if ignore_error else None
         subprocess.run(['hipcc', '-O3', '-c', source, '--compiler-options', args, '-o', out_path, '-I', 'include/'], check=True, env=env, shell=False, stdout=subprocess.DEVNULL, stderr=std_err)
         subprocess.run(['hipcc', '-shared', '-o', out_path, out_path], check=True, shell=False)
     elif file_ext == '.cu':
-        subprocess.run(['nvcc', '-O3', '--compiler-options', args, '-o', out_path, '--shared', source], check=True, shell=False)
+        subprocess.run(['nvcc', '-O3', '--compiler-options', args, '-o', out_path, '--shared', source], check=True, shell=False, stdout=subprocess.DEVNULL, stderr=std_err)
     else:
         raise RuntimeError(f'Unknown file extension {file_ext}')
 
