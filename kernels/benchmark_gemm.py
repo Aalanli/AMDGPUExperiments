@@ -4,7 +4,7 @@ from kernels import KernelHandler, KernelConfig
 from kernels.gemm import rocgemm, simt_gemm
 from kernels.gemmv2 import simt_gemmv2
 import hidet
-from utils import Bench
+from kernels.utils import Bench
 
 if __name__ == '__main__':
     def bench_rocgemm1(i, **kwargs):
