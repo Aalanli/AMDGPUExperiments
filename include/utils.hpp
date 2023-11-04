@@ -88,6 +88,6 @@ float inline bench(F&& func, int warmup, int iter) {
     return times / iter;
 }
 
-int inline cdiv(int a, int b) {
+__device__ __host__ int inline cdiv(int a, int b) {
     return (a + b - 1) / b;
 }

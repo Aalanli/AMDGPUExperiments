@@ -232,6 +232,7 @@ class KernelHandler:
         # |__ fmt(config[n]).so
         # |__ source_file
         # |__ meta_data.json
+        # |__ failed.json
         self.source_file = source_file
         assert os.path.exists(self.source_file) and os.path.isfile(self.source_file), f'File {self.source_file} does not exist'
         file_name = os.path.basename(self.source_file)
