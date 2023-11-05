@@ -51,7 +51,7 @@ if __name__ == '__main__':
 
         return lambda: g(a, b)
     
-    square = [(m, m, m) for m in range(256, 2048 + 1024, 128)]
+    square = [(m, m, m) for m in range(256, 2048, 128)]
     mem_bound = [(1, m, m) for m in [32, 64, 128, 256, 512, 768, 1024]]
     bench = Bench(
         x_vals=square,

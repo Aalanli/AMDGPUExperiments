@@ -1,11 +1,13 @@
 # %%
 from kernels.gemm import simt_gemm, rocgemm
+from kernels.gemmv2 import simt_gemmv2
 import torch
 
 a = torch.randn([1024, 1024], device='cuda')
 b = torch.randn([1024, 1024], device='cuda')
 
 simt_gemm(a, b)
+simt_gemmv2(a, b)
 rocgemm(a, b, version=2)
 
 import hidet
