@@ -31,7 +31,7 @@ def build(ignore_error, source, out_path, amd=True, **kwargs):
         subprocess.run(['hipcc', '-O3', '-c', source, '--compiler-options', args, '-o', out_path, '-I', 'include/'], check=True, env=env, shell=False, stdout=subprocess.DEVNULL, stderr=std_err)
         subprocess.run(['hipcc', '-shared', '-o', out_path, out_path], check=True, shell=False)
     elif file_ext == '.cu':
-        subprocess.run(['nvcc', '-O3', '--compiler-options', args, '-lineinfo', '-o', out_path, '--shared', source], check=True, shell=False, stdout=subprocess.DEVNULL, stderr=std_err)
+        subprocess.run(['nvcc', '-O3', '--compiler-options', args + ' -m64', '-ftz=true', '-prec-div=false', '-lineinfo', '-o', out_path, '--shared', source], check=True, shell=False, stdout=subprocess.DEVNULL, stderr=std_err)
     else:
         raise RuntimeError(f'Unknown file extension {file_ext}')
 

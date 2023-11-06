@@ -69,7 +69,7 @@ hand_picked_configs = [
 ]
 
 kernel_simtv4 = KernelHandler(
-    source_file='src/simt_gemmv4.cu',
+    source_file='src/simt_gemmv5.cu',
     compile_configs=hand_picked_configs,
     keys=['m', 'k', 'n'],
     platform='nvidia',
@@ -79,7 +79,7 @@ kernel_simtv4 = KernelHandler(
 )
 
 
-def simt_gemmv4(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def simt_gemmv5(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     assert a.shape[1] == b.shape[0]
     assert len(a.shape) == len(b.shape) == 2
     m, k = a.shape
@@ -96,7 +96,7 @@ if __name__ == '__main__':
     a = torch.randn([1024, 1024], device='cuda')
     b = torch.randn([1024, 1024], device='cuda')
     c1 = a @ b
-    c = simt_gemmv4(a, b)
+    c = simt_gemmv5(a, b)
     err = (c1 - c).abs()
     print(c)
     print(err)
