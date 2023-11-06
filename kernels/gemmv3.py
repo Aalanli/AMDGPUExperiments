@@ -1,35 +1,6 @@
 # %%
 import torch
 from kernels import KernelHandler, KernelConfig
-from kernels import Bench
-
-kernel_rocblas = KernelHandler(
-    source_file='src/rocblas_gemm.cpp',
-    compile_configs=[
-        KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 16, 'WARPSZ_M': 32, 'WARPSZ_N': 8, 'READ_A_DIM': 16, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-        KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 16, 'WARPSZ_M': 64, 'WARPSZ_N': 8, 'READ_A_DIM': 16, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-        KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 32, 'WARPSZ_M': 64, 'WARPSZ_N': 8, 'READ_A_DIM': 32, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-        KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 32, 'WARPSZ_M': 32, 'WARPSZ_N': 16, 'READ_A_DIM': 32, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-        KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 32, 'WARPSZ_M': 16, 'WARPSZ_N': 16, 'READ_A_DIM': 32, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-        KernelConfig({'BLOCKSIZE_M': 128, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 16, 'WARPSZ_M': 32, 'WARPSZ_N': 16, 'READ_A_DIM': 16, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-        KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 128, 'BLOCKSIZE_K': 16, 'WARPSZ_M': 16, 'WARPSZ_N': 32, 'READ_A_DIM': 16, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-        KernelConfig({'BLOCKSIZE_M': 128, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 32, 'WARPSZ_M': 32, 'WARPSZ_N': 16, 'READ_A_DIM': 32, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-        KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 128, 'BLOCKSIZE_K': 32, 'WARPSZ_M': 16, 'WARPSZ_N': 32, 'READ_A_DIM': 32, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-        KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 64, 'WARPSZ_M': 32, 'WARPSZ_N': 32, 'READ_A_DIM': 64, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-    ],
-    keys=['m', 'n', 'k', 'version'],
-    platform='nvidia',
-    disable_benchmark=False
-)
-
-def rocgemm(a: torch.Tensor, b: torch.Tensor, version: int = 1) -> torch.Tensor:
-    assert a.shape[1] == b.shape[0]
-    assert len(a.shape) == len(b.shape) == 2
-    m, k = a.shape
-    n = b.shape[1]
-    c = torch.empty((m, n), device=a.device, dtype=a.dtype)
-    kernel_rocblas(a, b, c, m=m, k=k, n=n, version=version)
-    return c
 
 def gen_configs():
     for (bwm, bwn) in [(1, 1), (2, 2), (1, 2), (2, 1), (2, 4), (4, 2)]:
@@ -81,10 +52,22 @@ hand_picked_configs = [
     KernelConfig({'BlockM': 64, 'BlockK': 32, 'BlockN': 64, 'TM': 4, 'TN': 4,  'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 4, 'WarpN': 2, 'TYPE': 'float'}),
     KernelConfig({'BlockM': 32, 'BlockK': 32, 'BlockN': 128, 'TM': 4, 'TN': 4, 'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 2, 'WarpN': 4, 'TYPE': 'float'}),
 
+    KernelConfig({'BlockM': 64, 'BlockK': 16, 'BlockN': 64, 'TM': 4, 'TN': 4, 'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 4, 'WarpN': 2, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 32, 'BlockK': 16, 'BlockN': 32, 'TM': 4, 'TN': 4, 'TK': 1, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 2, 'WarpN': 1, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 32, 'BlockK': 16, 'BlockN': 64, 'TM': 4, 'TN': 4, 'TK': 1, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 2, 'WarpN': 2, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 16, 'BlockK': 16, 'BlockN': 64, 'TM': 4, 'TN': 4, 'TK': 1, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 1, 'WarpN': 2, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 64, 'BlockK': 16, 'BlockN': 64, 'TM': 4, 'TN': 4, 'TK': 1, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 4, 'WarpN': 2, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 32, 'BlockK': 16, 'BlockN': 128, 'TM': 4, 'TN': 4, 'TK': 1, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 2, 'WarpN': 4, 'TYPE': 'float'}),
+
+    KernelConfig({'BlockM': 32, 'BlockK': 16, 'BlockN': 32, 'TM': 4, 'TN': 4,  'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 2, 'WarpN': 1, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 32, 'BlockK': 16, 'BlockN': 64, 'TM': 4, 'TN': 4,  'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 2, 'WarpN': 2, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 16, 'BlockK': 16, 'BlockN': 64, 'TM': 4, 'TN': 4,  'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 1, 'WarpN': 2, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 64, 'BlockK': 16, 'BlockN': 64, 'TM': 4, 'TN': 4,  'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 4, 'WarpN': 2, 'TYPE': 'float'}),
+    KernelConfig({'BlockM': 32, 'BlockK': 16, 'BlockN': 128, 'TM': 4, 'TN': 4, 'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 2, 'WarpN': 4, 'TYPE': 'float'}),
 ]
 
-kernel_simt = KernelHandler(
-    source_file='src/simt_gemm.cu',
+kernel_simtv3 = KernelHandler(
+    source_file='src/simt_gemmv3.cu',
     compile_configs=list(gen_configs()),
     keys=['m', 'k', 'n'],
     platform='nvidia',
@@ -93,13 +76,14 @@ kernel_simt = KernelHandler(
     parallel_compile=True
 )
 
-def simt_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+
+def simt_gemmv3(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     assert a.shape[1] == b.shape[0]
     assert len(a.shape) == len(b.shape) == 2
     m, k = a.shape
     n = b.shape[1]
     c = torch.empty((m, n), device=a.device, dtype=a.dtype)
-    kernel_simt(a, b, c, m=m, k=k, n=n)
+    kernel_simtv3(a, b, c, m=m, k=k, n=n)
     return c
 
 
@@ -109,17 +93,9 @@ if __name__ == '__main__':
     a = torch.randn([1024, 1024], device='cuda')
     b = torch.randn([1024, 1024], device='cuda')
     c1 = a @ b
-    c = simt_gemm(a, b)
+    c = simt_gemmv3(a, b)
     err = (c1 - c).abs()
     print(c)
     print(err)
-    print(err.max())
-
-    a = torch.randn([512, 512], device='cuda')
-    b = torch.randn([512, 512], device='cuda')
-    c1 = a @ b
-    c = rocgemm(a, b)
-
-    err = (a @ b - c).abs()
     print(err.max())
 
