@@ -355,16 +355,15 @@ __global__ void __launch_bounds__(WarpM * /*WarpK* */ WarpN * warpSize) simt_gem
         int warp_m_offset = ((warp_id / WarpK) % WarpM) * ThreadM;
         int warp_n_offset = ((warp_id / WarpK) / WarpM) * ThreadN;
 
-        for (int wm = 0; wm < WM_REP; ++wm) {
-            for (int wn = 0; wn < WN_REP; ++wn) {
-                int lane = threadIdx.x % warpSize;
-                int thread_m_offset = ((lane / ThreadK) % ThreadM + warp_m_offset + wm * WarpM * ThreadM) * TM;
-                int thread_n_offset = ((lane / ThreadK / ThreadM) + warp_n_offset + wn * WarpN * ThreadN) * TN;
-                float regs_a[2][TM][TK];
-                float regs_b[2][TK][TN];
+        float regs_a[2][WM_REP][WN_REP][TM][TK];
+        float regs_b[2][WM_REP][WN_REP][TK][TN];
 
+        auto load_regs_a = [&](int wk, int smem_tile, int regs_tile) {
+            for (int wm = 0; wm < WM_REP; ++wm) {
+                for (int wn = 0; wn < WN_REP; ++wn) {
+                    int lane = threadIdx.x % warpSize;
+                    int thread_m_offset = ((lane / ThreadK) % ThreadM + warp_m_offset + wm * WarpM * ThreadM) * TM;
 
-                auto load_regs_a = [&](int wk, int smem_tile, int regs_tile) {
                     #pragma unroll
                     for (int ik = 0; ik < TK; ik++) {
                         #pragma unroll
@@ -372,62 +371,51 @@ __global__ void __launch_bounds__(WarpM * /*WarpK* */ WarpN * warpSize) simt_gem
                             int thread_k_offset = (lane % ThreadK + warp_k_offset) * TK + wk;
                             int coord_k = thread_k_offset + ik;
                             if (repeat_m % 4 == 0)
-                                regs_a[regs_tile][im][ik] = sA[smem_tile][coord_k][(thread_m_offset + im) + (coord_k * 4) % BlockM];
+                                regs_a[regs_tile][wm][wn][im][ik] = sA[smem_tile][coord_k][(thread_m_offset + im) + (coord_k * 4) % BlockM];
                             else
-                                regs_a[regs_tile][im][ik] = sA[smem_tile][coord_k][thread_m_offset + im];
+                                regs_a[regs_tile][wm][wn][im][ik] = sA[smem_tile][coord_k][thread_m_offset + im];
                         }
                     }
-                };
-                auto load_regs_b = [&](int wk, int smem_tile, int regs_tile) {
+                }
+            }
+        };
+        auto load_regs_b = [&](int wk, int smem_tile, int regs_tile) {
+            for (int wm = 0; wm < WM_REP; ++wm) {
+                for (int wn = 0; wn < WN_REP; ++wn) {
+                    int lane = threadIdx.x % warpSize;
+                    int thread_n_offset = ((lane / ThreadK / ThreadM) + warp_n_offset + wn * WarpN * ThreadN) * TN;
+
                     int thread_k_offset = (lane % ThreadK + warp_k_offset) * TK + wk;
                     #pragma unroll
                     for (int ik = 0; ik < TK; ik++) {
                         #pragma unroll
                         for (int in = 0; in < TN; in++) {
-                            regs_b[regs_tile][ik][in] = sB[smem_tile][(thread_k_offset + ik)][thread_n_offset + in];
+                            regs_b[regs_tile][wm][wn][ik][in] = sB[smem_tile][(thread_k_offset + ik)][thread_n_offset + in];
                         }
-                    }
-                };
-                load_regs_a(0, kb % 2, 0);
-                load_regs_b(0, kb % 2, 0);
-                for (int wk = 0; wk < BlockK / (WarpK * ThreadK * TK); ++wk) {
-                    mma(regs_a[wk % 2], regs_b[wk % 2], regs_c[wm][wn]);
-                    if (wk < BlockK / (WarpK * ThreadK * TK) - 1) {
-                        load_regs_a((wk + 1) * WarpK * ThreadK * TK, kb % 2, (wk + 1) % 2);
-                        load_regs_b((wk + 1) * WarpK * ThreadK * TK, kb % 2, (wk + 1) % 2);
                     }
                 }
             }
+        };
+
+        load_regs_a(0, kb % 2, 0);
+        load_regs_b(0, kb % 2, 0);
+        for (int wk = 0; wk < BlockK / (WarpK * ThreadK * TK); ++wk) {
+            for (int wm = 0; wm < WM_REP; ++wm)
+                for (int wn = 0; wn < WN_REP; ++wn)
+                    mma(regs_a[wk % 2][wm][wn], regs_b[wk % 2][wm][wn], regs_c[wm][wn]);
+            if (wk < BlockK / (WarpK * ThreadK * TK) - 1) {
+                load_regs_a((wk + 1) * WarpK * ThreadK * TK, kb % 2, (wk + 1) % 2);
+                load_regs_b((wk + 1) * WarpK * ThreadK * TK, kb % 2, (wk + 1) % 2);
+            }
         }
+    
+        
         if (kb < (K + BlockK - 1) / BlockK - 1) {
             load_a(kb + 1, (kb + 1) % 2);
             load_b(kb + 1, (kb + 1) % 2);
         }
         __syncthreads();
     }
-
-    static_assert(ThreadK == 1, "");
-    // if (ThreadK > 1) {
-    //     // we need to reduce within the warp
-    //     constexpr int len_c = WM_REP * WN_REP * TM * TN;
-    //     float* rc = (float*) regs_c;
-    //     for (int i = 0; i < len_c; ++i) {
-    //         for (int k = 1; k < ThreadK; k *= 2) {
-    //             rc[i] += __shfl_xor(rc[i], k);
-    //         }
-    //     }
-    // }
-
-    // Tensor<float, BlockM, BlockN + 1> sC(smem);
-    // float* sC = smem;
-
-    // {
-    //     load_smem<nthreads, warpSize>(sC, [](int i, int j) {
-    //         return 1.0f;
-    //     });
-    //     __syncthreads();
-    // }
-    // load into sC[BlockM, BlockN]
     {
         int warp_id = threadIdx.x / warpSize;
         int warp_k_offset = (warp_id % WarpK) * ThreadK;
@@ -453,23 +441,7 @@ __global__ void __launch_bounds__(WarpM * /*WarpK* */ WarpN * warpSize) simt_gem
                 }
             }
         }
-        // __syncthreads();
     }
-
-    // debug_print_smem(sC);
-    // __syncthreads();
-
-    // copy back to global
-    // coalesce_mem_2d<nthreads, warpSize, float, BlockM, BlockN>([&](int i, int j) {
-    //     return sC[i][j];
-    // }, [&](int i, int j, float v) {
-    //     int coord_m = (blockIdx.x * BlockM) + i;
-    //     int coord_n = blockIdx.y * BlockN + j;
-    //     bool inbounds = coord_m < M && coord_n < N;
-    //     if (inbounds) {
-    //         c[coord_m * N + coord_n] = v;
-    //     }
-    // });
 }
 
 __host__ __device__ int cdiv(int a, int b) {

@@ -6,13 +6,13 @@ def gen_configs():
     for (bwm, bwn) in [(1, 1), (2, 2), (1, 2), (2, 1), (2, 4), (4, 2)]:
         for (wm, wn, wk) in [(4, 8, 1), (2, 16, 1), (16, 2, 1), (8, 4, 1)]:
             for (tm, tn, tk) in [(4, 4, 2), (4, 4, 1), (2, 2, 2), (2, 2, 1)]:
-                for block_k in [16, 32, 64]:
+                for block_k in [8, 16, 32]:
                     block_m = bwm * wm * tm
                     block_n = bwn * wn * tn
 
                     for (block_m, block_n) in [(block_m, block_n), (block_m * 2, block_n), (block_m, block_n * 2), (block_m * 2, block_n * 2)]:
-                        smem = max(block_m * block_k + block_k * block_n, block_m * block_n) * 4
-                        regs = (tk * (tm + tn) + tm * tn) * 4 + 32
+                        smem = (block_m * block_k + block_k * block_n) * 4 * 2
+                        regs = (tk * (tm + tn) + tm * tn) * 2
                         if regs > 255:
                             continue
                         if smem > 0xc000:
@@ -70,7 +70,7 @@ hand_picked_configs = [
 
 kernel_simtv4 = KernelHandler(
     source_file='src/simt_gemmv5.cu',
-    compile_configs=hand_picked_configs,
+    compile_configs=list(gen_configs()),
     keys=['m', 'k', 'n'],
     platform='nvidia',
     disable_benchmark=False,

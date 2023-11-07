@@ -31,7 +31,14 @@ def build(ignore_error, source, out_path, amd=True, **kwargs):
         subprocess.run(['hipcc', '-O3', '-c', source, '--compiler-options', args, '-o', out_path, '-I', 'include/'], check=True, env=env, shell=False, stdout=subprocess.DEVNULL, stderr=std_err)
         subprocess.run(['hipcc', '-shared', '-o', out_path, out_path], check=True, shell=False)
     elif file_ext == '.cu':
-        subprocess.run(['nvcc', '-O3', '--compiler-options', args + ' -m64', '-ftz=true', '-prec-div=false', '-lineinfo', '-o', out_path, '--shared', source], check=True, shell=False, stdout=subprocess.DEVNULL, stderr=std_err)
+        result = subprocess.run(['nvcc', '-O3', '--compiler-options', args + ' -m64', '-ftz=true', '-prec-div=false', '-lineinfo', '-o', out_path, '--shared', source], check=False, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if result.returncode:
+            message = ""
+            if result.stdout:
+                message += result.stdout.decode().strip() + '\n'
+            if result.stderr:
+                message += result.stderr.decode().strip()
+            raise Exception(message)
     else:
         raise RuntimeError(f'Unknown file extension {file_ext}')
 
@@ -309,9 +316,13 @@ class KernelHandler:
 
         # map from runtime-key to best so_name
         self.kernel_map: Dict[str, str] = {}
+        self.kernel_times: Dict[str, Dict[str, float]] = {}
         if os.path.exists(os.path.join(dir_path, 'meta_data.json')) and len(need_to_compile) == 0:
             with open(os.path.join(dir_path, 'meta_data.json'), 'r') as f:
                 self.kernel_map = json.load(f)
+        if os.path.exists(os.path.join(dir_path, 'kernel_times.json')):
+            with open(os.path.join(dir_path, 'kernel_times.json'), 'r') as f:
+                self.kernel_times = json.load(f)
     
     def runtime_key(self, runtime_args: Dict[str, Any]) -> str:
         name = ''
@@ -323,6 +334,15 @@ class KernelHandler:
     def dump_meta(self):
         with open(os.path.join(self.dir_path, 'meta_data.json'), 'w') as f:
             json.dump(self.kernel_map, f)
+        ordered_timings = []
+        for k, v in self.kernel_times.items():
+            v = list(v.items())
+            v.sort(key=lambda x: x[1])
+            ordered_timings.append((k, v))
+        ordered_timings.sort(key=lambda x: x[0])
+        ordered_timings = {k: {k1: v1 for k1, v1 in v} for k, v in ordered_timings}
+        with open(os.path.join(self.dir_path, 'kernel_times.json'), 'w') as f:
+            json.dump(ordered_timings, f)
     
     def __call__(self, *args, **kwargs):
         runtime_args = kwargs
@@ -345,12 +365,21 @@ class KernelHandler:
                 raise RuntimeError(f'Kernel launch {self.kernel_map[runtime_key]} failed')
         else:
             # benchmark
+            if runtime_key not in self.kernel_times:
+                self.kernel_times[runtime_key] = {}
             best_so_name = None
             best_time = float('inf')
             for so_name, func in self.launch_funcs.items():
+                if so_name in self.kernel_times[runtime_key]:
+                    time = self.kernel_times[runtime_key][so_name]
+                    if time < best_time:
+                        best_time = time
+                        best_so_name = so_name
+                    continue
                 if not func(*args):
                     continue
                 time = do_bench(lambda: func(*args))
+                self.kernel_times[runtime_key][so_name] = time
                 if time < best_time:
                     best_time = time
                     best_so_name = so_name

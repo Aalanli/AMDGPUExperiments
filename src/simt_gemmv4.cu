@@ -246,7 +246,7 @@ __global__ void __launch_bounds__(WarpM * /*WarpK* */ WarpN * warpSize) simt_gem
     // stage 1. each block handles A[BlockM, BlockK] x B[BlockK, BlockN]
     // stage 2. each warp handles A[ThreadM, BlockK / WarpK] x B[BlockK / WarpK, ThreadN]
     // stage 3. each thread handles A[TM, TK] x B[TK, TN]
-    constexpr int smem_elems = Max<BlockM * (BlockK) + BlockK * (BlockN), (BlockN + 1) * BlockM>::value;
+    constexpr int smem_elems = Max<BlockM * (BlockK) + BlockK * (BlockN), 0>::value;
     __shared__ float smem[smem_elems];
 
     static_assert(BlockK >= WarpK * ThreadK * TK,"");
@@ -399,29 +399,7 @@ __global__ void __launch_bounds__(WarpM * /*WarpK* */ WarpN * warpSize) simt_gem
         }
         __syncthreads();
     }
-
-    static_assert(ThreadK == 1, "");
-    // if (ThreadK > 1) {
-    //     // we need to reduce within the warp
-    //     constexpr int len_c = WM_REP * WN_REP * TM * TN;
-    //     float* rc = (float*) regs_c;
-    //     for (int i = 0; i < len_c; ++i) {
-    //         for (int k = 1; k < ThreadK; k *= 2) {
-    //             rc[i] += __shfl_xor(rc[i], k);
-    //         }
-    //     }
-    // }
-
-    Tensor<float, BlockM, BlockN + 1> sC(smem);
-    // float* sC = smem;
-
-    // {
-    //     load_smem<nthreads, warpSize>(sC, [](int i, int j) {
-    //         return 1.0f;
-    //     });
-    //     __syncthreads();
-    // }
-    // load into sC[BlockM, BlockN]
+    
     {
         int warp_id = threadIdx.x / warpSize;
         int warp_k_offset = (warp_id % WarpK) * ThreadK;
@@ -436,29 +414,18 @@ __global__ void __launch_bounds__(WarpM * /*WarpK* */ WarpN * warpSize) simt_gem
                     
                     for (int im = 0; im < TM; im++) {
                         for (int in = 0; in < TN; in++) {
-                            sC[thread_m_offset + im][thread_n_offset + in] = regs_c[wm][wn][im][in];
+                            // sC[thread_m_offset + im][thread_n_offset + in] = regs_c[wm][wn][im][in];
+                            int coord_m = blockIdx.x * BlockM + thread_m_offset + im;
+                            int coord_n = blockIdx.y * BlockN + thread_n_offset + in;
+                            if (coord_m < M && coord_n < N) {
+                                c[coord_m * N + coord_n] = regs_c[wm][wn][im][in];
+                            }
                         }
                     }
                 }
             }
         }
-        __syncthreads();
     }
-
-    // debug_print_smem(sC);
-    // __syncthreads();
-
-    // copy back to global
-    coalesce_mem_2d<nthreads, warpSize, float, BlockM, BlockN>([&](int i, int j) {
-        return sC[i][j];
-    }, [&](int i, int j, float v) {
-        int coord_m = (blockIdx.x * BlockM) + i;
-        int coord_n = blockIdx.y * BlockN + j;
-        bool inbounds = coord_m < M && coord_n < N;
-        if (inbounds) {
-            c[coord_m * N + coord_n] = v;
-        }
-    });
 }
 
 __host__ __device__ int cdiv(int a, int b) {
