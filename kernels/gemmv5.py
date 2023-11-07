@@ -66,11 +66,24 @@ hand_picked_configs = [
     KernelConfig({'BlockM': 64, 'BlockK': 16, 'BlockN': 64, 'TM': 4, 'TN': 4,  'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 4, 'WarpN': 2, 'TYPE': 'float'}),
     KernelConfig({'BlockM': 32, 'BlockK': 16, 'BlockN': 128, 'TM': 4, 'TN': 4, 'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 2, 'WarpN': 4, 'TYPE': 'float'}),
 
+    # KernelConfig({'BlockM': 64, 'BlockK': 16, 'BlockN': 64, 'TM': 4, 'TN': 4, 'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 4, 'WarpN': 2, 'TYPE': 'float'}),
+    # KernelConfig({'BlockM': 32, 'BlockK': 16, 'BlockN': 32, 'TM': 4, 'TN': 4, 'TK': 1, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 2, 'WarpN': 1, 'TYPE': 'float'}),
+    # KernelConfig({'BlockM': 32, 'BlockK': 16, 'BlockN': 64, 'TM': 4, 'TN': 4, 'TK': 1, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 2, 'WarpN': 2, 'TYPE': 'float'}),
+    # KernelConfig({'BlockM': 16, 'BlockK': 16, 'BlockN': 64, 'TM': 4, 'TN': 4, 'TK': 1, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 1, 'WarpN': 2, 'TYPE': 'float'}),
+    # KernelConfig({'BlockM': 64, 'BlockK': 16, 'BlockN': 64, 'TM': 4, 'TN': 4, 'TK': 1, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 4, 'WarpN': 2, 'TYPE': 'float'}),
+    # KernelConfig({'BlockM': 32, 'BlockK': 16, 'BlockN': 128, 'TM': 4, 'TN': 4, 'TK': 1, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 2, 'WarpN': 4, 'TYPE': 'float'}),
+
+    # KernelConfig({'BlockM': 32, 'BlockK': 16, 'BlockN': 32, 'TM': 4, 'TN': 4,  'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 2, 'WarpN': 1, 'TYPE': 'float'}),
+    # KernelConfig({'BlockM': 32, 'BlockK': 16, 'BlockN': 64, 'TM': 4, 'TN': 4,  'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 2, 'WarpN': 2, 'TYPE': 'float'}),
+    # KernelConfig({'BlockM': 16, 'BlockK': 16, 'BlockN': 64, 'TM': 4, 'TN': 4,  'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 1, 'WarpN': 2, 'TYPE': 'float'}),
+    # KernelConfig({'BlockM': 64, 'BlockK': 16, 'BlockN': 64, 'TM': 4, 'TN': 4,  'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 4, 'WarpN': 2, 'TYPE': 'float'}),
+    # KernelConfig({'BlockM': 32, 'BlockK': 16, 'BlockN': 128, 'TM': 4, 'TN': 4, 'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 2, 'WarpN': 4, 'TYPE': 'float'}),
+
 ]
 
 kernel_simtv4 = KernelHandler(
     source_file='src/simt_gemmv5.cu',
-    compile_configs=list(gen_configs()),
+    compile_configs=hand_picked_configs,
     keys=['m', 'k', 'n'],
     platform='nvidia',
     disable_benchmark=False,

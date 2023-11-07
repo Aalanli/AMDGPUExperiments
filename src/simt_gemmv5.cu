@@ -344,78 +344,89 @@ __global__ void __launch_bounds__(WarpM * /*WarpK* */ WarpN * warpSize) simt_gem
             }
         };
     
+    
+
+    float regs_a[2][WM_REP][WN_REP][TM][TK];
+    float regs_b[2][WM_REP][WN_REP][TK][TN];
+    int warp_id = threadIdx.x / warpSize;
+    int warp_k_offset = (warp_id % WarpK) * ThreadK;
+    int warp_m_offset = ((warp_id / WarpK) % WarpM) * ThreadM;
+    int warp_n_offset = ((warp_id / WarpK) / WarpM) * ThreadN;
+    auto load_regs_a = [&](int wk, int smem_tile, int regs_tile) {
+        for (int wm = 0; wm < WM_REP; ++wm) {
+            for (int wn = 0; wn < WN_REP; ++wn) {
+                int lane = threadIdx.x % warpSize;
+                int thread_m_offset = ((lane / ThreadK) % ThreadM + warp_m_offset + wm * WarpM * ThreadM) * TM;
+
+                #pragma unroll
+                for (int ik = 0; ik < TK; ik++) {
+                    #pragma unroll
+                    for (int im = 0; im < TM; im++) {
+                        int thread_k_offset = (lane % ThreadK + warp_k_offset) * TK + wk;
+                        int coord_k = thread_k_offset + ik;
+                        if (repeat_m % 4 == 0)
+                            regs_a[regs_tile][wm][wn][im][ik] = sA[smem_tile][coord_k][(thread_m_offset + im) + (coord_k * 4) % BlockM];
+                        else
+                            regs_a[regs_tile][wm][wn][im][ik] = sA[smem_tile][coord_k][thread_m_offset + im];
+                    }
+                }
+            }
+        }
+    };
+    auto load_regs_b = [&](int wk, int smem_tile, int regs_tile) {
+        for (int wm = 0; wm < WM_REP; ++wm) {
+            for (int wn = 0; wn < WN_REP; ++wn) {
+                int lane = threadIdx.x % warpSize;
+                int thread_n_offset = ((lane / ThreadK / ThreadM) + warp_n_offset + wn * WarpN * ThreadN) * TN;
+
+                int thread_k_offset = (lane % ThreadK + warp_k_offset) * TK + wk;
+                #pragma unroll
+                for (int ik = 0; ik < TK; ik++) {
+                    #pragma unroll
+                    for (int in = 0; in < TN; in++) {
+                        regs_b[regs_tile][wm][wn][ik][in] = sB[smem_tile][(thread_k_offset + ik)][thread_n_offset + in];
+                    }
+                }
+            }
+        }
+    };
+    auto mma_ = [&](int wk) {
+        for (int wm = 0; wm < WM_REP; ++wm)
+            for (int wn = 0; wn < WN_REP; ++wn)
+                mma(regs_a[wk % 2][wm][wn], regs_b[wk % 2][wm][wn], regs_c[wm][wn]);
+    };
+
     load_a(0, 0);
     load_b(0, 0);
     __syncthreads();
-
-    for (int kb = 0; kb < (K + BlockK - 1) / BlockK; kb++) {
-
-        int warp_id = threadIdx.x / warpSize;
-        int warp_k_offset = (warp_id % WarpK) * ThreadK;
-        int warp_m_offset = ((warp_id / WarpK) % WarpM) * ThreadM;
-        int warp_n_offset = ((warp_id / WarpK) / WarpM) * ThreadN;
-
-        float regs_a[2][WM_REP][WN_REP][TM][TK];
-        float regs_b[2][WM_REP][WN_REP][TK][TN];
-
-        auto load_regs_a = [&](int wk, int smem_tile, int regs_tile) {
-            for (int wm = 0; wm < WM_REP; ++wm) {
-                for (int wn = 0; wn < WN_REP; ++wn) {
-                    int lane = threadIdx.x % warpSize;
-                    int thread_m_offset = ((lane / ThreadK) % ThreadM + warp_m_offset + wm * WarpM * ThreadM) * TM;
-
-                    #pragma unroll
-                    for (int ik = 0; ik < TK; ik++) {
-                        #pragma unroll
-                        for (int im = 0; im < TM; im++) {
-                            int thread_k_offset = (lane % ThreadK + warp_k_offset) * TK + wk;
-                            int coord_k = thread_k_offset + ik;
-                            if (repeat_m % 4 == 0)
-                                regs_a[regs_tile][wm][wn][im][ik] = sA[smem_tile][coord_k][(thread_m_offset + im) + (coord_k * 4) % BlockM];
-                            else
-                                regs_a[regs_tile][wm][wn][im][ik] = sA[smem_tile][coord_k][thread_m_offset + im];
-                        }
-                    }
-                }
-            }
-        };
-        auto load_regs_b = [&](int wk, int smem_tile, int regs_tile) {
-            for (int wm = 0; wm < WM_REP; ++wm) {
-                for (int wn = 0; wn < WN_REP; ++wn) {
-                    int lane = threadIdx.x % warpSize;
-                    int thread_n_offset = ((lane / ThreadK / ThreadM) + warp_n_offset + wn * WarpN * ThreadN) * TN;
-
-                    int thread_k_offset = (lane % ThreadK + warp_k_offset) * TK + wk;
-                    #pragma unroll
-                    for (int ik = 0; ik < TK; ik++) {
-                        #pragma unroll
-                        for (int in = 0; in < TN; in++) {
-                            regs_b[regs_tile][wm][wn][ik][in] = sB[smem_tile][(thread_k_offset + ik)][thread_n_offset + in];
-                        }
-                    }
-                }
-            }
-        };
-
+    constexpr int reps_wk = BlockK / (WarpK * ThreadK * TK);
+    int k_tiles = (K + BlockK - 1) / BlockK - 1;
+    for (int kb = 0; kb < k_tiles; kb++) {
         load_regs_a(0, kb % 2, 0);
         load_regs_b(0, kb % 2, 0);
-        for (int wk = 0; wk < BlockK / (WarpK * ThreadK * TK); ++wk) {
-            for (int wm = 0; wm < WM_REP; ++wm)
-                for (int wn = 0; wn < WN_REP; ++wn)
-                    mma(regs_a[wk % 2][wm][wn], regs_b[wk % 2][wm][wn], regs_c[wm][wn]);
-            if (wk < BlockK / (WarpK * ThreadK * TK) - 1) {
-                load_regs_a((wk + 1) * WarpK * ThreadK * TK, kb % 2, (wk + 1) % 2);
-                load_regs_b((wk + 1) * WarpK * ThreadK * TK, kb % 2, (wk + 1) % 2);
-            }
+        #pragma unroll
+        for (int wk = 0; wk < reps_wk - 1; ++wk) {
+            mma_(wk);            
+            load_regs_a((wk + 1) * WarpK * ThreadK * TK, kb % 2, (wk + 1) % 2);
+            load_regs_b((wk + 1) * WarpK * ThreadK * TK, kb % 2, (wk + 1) % 2);
         }
-    
+        mma_((reps_wk - 1));    
         
-        if (kb < (K + BlockK - 1) / BlockK - 1) {
-            load_a(kb + 1, (kb + 1) % 2);
-            load_b(kb + 1, (kb + 1) % 2);
-        }
+        load_a(kb + 1, (kb + 1) % 2);
+        load_b(kb + 1, (kb + 1) % 2);
         __syncthreads();
     }
+    load_regs_a(0, k_tiles % 2, 0);
+    load_regs_b(0, k_tiles % 2, 0);
+    #pragma unroll
+    for (int wk = 0; wk < reps_wk - 1; ++wk) {
+        mma_(wk);            
+        load_regs_a((wk + 1) * WarpK * ThreadK * TK, k_tiles % 2, (wk + 1) % 2);
+        load_regs_b((wk + 1) * WarpK * ThreadK * TK, k_tiles % 2, (wk + 1) % 2);
+    }
+    mma_((reps_wk - 1));
+
+
     {
         int warp_id = threadIdx.x / warpSize;
         int warp_k_offset = (warp_id % WarpK) * ThreadK;
@@ -459,18 +470,6 @@ extern "C" __attribute__((visibility("default"))) bool LAUNCH_NAME(float* a, flo
     dim3 grid(cdiv(m, BlockM), cdiv(n, BlockN));
     dim3 block(WarpM * WarpN * warp_size);
 
-    int used_smem = BlockM * BlockK * sizeof(TYPE) + BlockK * BlockN * sizeof(TYPE);
-    used_smem = my_max(used_smem, BlockM * BlockN * sizeof(TYPE));
-    if (used_smem > smem) {
-        printf("smem overflow: %d > %d\n", used_smem, smem);
-        return false;
-    }
-
-    int used_regs = sizeof(TYPE) * (TM * TK + TK * TN + TM * TN) * WarpM * WarpN;
-    if (used_regs > regs) {
-        printf("regs overflow: %d > %d\n", used_regs, regs);
-        return false;
-    }
     if (ThreadM * ThreadK * ThreadN != warp_size) {
         printf("ThreadM * ThreadK * ThreadN != warp_size, (%d, %d, %d) != %d\n", ThreadM, ThreadK, ThreadN, warp_size);
         return false;

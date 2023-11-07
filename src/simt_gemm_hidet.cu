@@ -72,13 +72,13 @@ __global__ __launch_bounds__(nthreads) void simt_gemm_hidet_kernel(
 
     const int warp_idx = threadIdx.x / warp_size;
     const int warp_lane = threadIdx.x % warp_size;
-    const int warp_m = warp_idx / WarpOuterN;
-    const int warp_n = warp_idx % WarpOuterN;
+    const int warp_m = warp_idx / BlockWarpsN;
+    const int warp_n = warp_idx % BlockWarpsN;
     const int tm = warp_lane / WarpMidN;
     const int tn = warp_lane % WarpMidN;
 
     auto copy_a_g2r = [&](int offset_k) {
-        int offset_m = (blockIdx.x * block_m + threadIdx.x / block_k) * lines;
+        int offset_m = blockIdx.x * block_m + (threadIdx.x / block_k) * ldg_a;
         int offset_k_ = offset_k + threadIdx.x % block_k;
         for (int i = 0; i < ldg_a; ++i) {
             bool inbounds = (offset_m + i) < M && offset_k_ < K;
@@ -87,7 +87,7 @@ __global__ __launch_bounds__(nthreads) void simt_gemm_hidet_kernel(
     };
 
     auto copy_a_r2s = [&](int slice_idx) {
-        int offset_m = (threadIdx.x / block_k) * lines;
+        int offset_m = (threadIdx.x / block_k) * ldg_a;
         int offset_k = threadIdx.x % block_k;
         for (int i = 0; i < ldg_a; ++i) {
             sA[slice_idx][offset_k][offset_m + i] = regs_ldg_a[i];
@@ -135,7 +135,7 @@ __global__ __launch_bounds__(nthreads) void simt_gemm_hidet_kernel(
                 for (int tim = 0; tim < WarpInnerM; tim++) {
                     for (int tin = 0; tin < WarpInnerN; tin++) {
                         int offset_m = tim + tm * WarpInnerM + wm * WarpMidM * WarpInnerM + warp_m * WarpOuterM * WarpMidM * WarpInnerM + blockIdx.x * block_m;
-                        int offset_n = tin + tn * WarpInnerN + wn * WarpMidN * WarpInnerN + warp_n * WarpOuterN * WarpMidN + WarpInnerN + blockIdx.y * block_n;
+                        int offset_n = tin + tn * WarpInnerN + wn * WarpMidN * WarpInnerN + warp_n * WarpOuterN * WarpMidN * WarpInnerN + blockIdx.y * block_n;
                         bool inbounds = offset_m < M && offset_n < N;
                         if (inbounds) {
                             C[offset_m * N + offset_n] = regs_c[wm][wn][tim][tin];
@@ -151,7 +151,7 @@ __global__ __launch_bounds__(nthreads) void simt_gemm_hidet_kernel(
             for (int wn = 0; wn < WarpOuterN; ++wn)
                 for (int tim = 0; tim < WarpInnerM; tim++)
                     for (int tin = 0; tin < WarpInnerN; tin++)
-                        regs_c[wm][wn][tim][tin] = regs_a[idx][wm][tim] * regs_b[idx][wn][tin];
+                        regs_c[wm][wn][tim][tin] += regs_a[idx][wm][tim] * regs_b[idx][wn][tin];
     };
 
     for (int wm = 0; wm < WarpOuterM; ++wm)
@@ -168,9 +168,10 @@ __global__ __launch_bounds__(nthreads) void simt_gemm_hidet_kernel(
     copy_a_s2r(0, 0, 0);
     copy_b_s2r(0, 0, 0);
 
-    int k_tiles = (K + block_k - 1) / block_k;
+    int k_tiles = (K + block_k - 1) / block_k - 1;
     for (int k = 0; k < k_tiles; ++k) {
         int offset_k = (k + 1) * block_k;
+        #pragma unroll
         for (int k_frag = 0; k_frag < BlockWarpsK; ++k_frag) {
             if (k_frag == BlockWarpsK - 1) {
                 copy_a_r2s((k + 1) % 2);
@@ -188,6 +189,14 @@ __global__ __launch_bounds__(nthreads) void simt_gemm_hidet_kernel(
             }
             mma(k_frag % 2);
         }
+    }
+    #pragma unroll
+    for (int k_frag = 0; k_frag < BlockWarpsK; ++k_frag) {
+        if (k_frag < BlockWarpsK - 1) {
+            copy_a_s2r(k_tiles % 2, (k_frag + 1) % 2, k_frag + 1);
+            copy_b_s2r(k_tiles % 2, (k_frag + 1) % 2, k_frag + 1);
+        }
+        mma(k_frag % 2);
     }
 
     copy_c_r2g();

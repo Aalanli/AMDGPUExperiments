@@ -4,6 +4,7 @@ from kernels.gemmv2 import simt_gemmv2
 from kernels.gemmv3 import simt_gemmv3
 from kernels.gemmv4 import simt_gemmv4
 from kernels.gemmv5 import simt_gemmv5
+from kernels.gemm_hidet import hidet_simt
 import torch
 
 a = torch.randn([1024, 1024], device='cuda')
@@ -14,10 +15,12 @@ simt_gemmv2(a, b)
 simt_gemmv3(a, b)
 simt_gemmv4(a, b)
 simt_gemmv5(a, b)
+hidet_simt(a, b)
 rocgemm(a, b, version=2)
 
 import hidet
 hidet.option.cache_dir('./outs/simt_matmul')
+hidet.option.debug_cache_tuning()
 def bench_hidet(i, **kwargs):
     m, n, k = i
     a = hidet.from_torch(torch.randn([1, m, k], device='cuda'))

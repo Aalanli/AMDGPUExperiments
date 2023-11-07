@@ -34,9 +34,17 @@ def gen_configs():
                             'WarpInnerN': tn,
                         })
 
+hand_picked_configs = [
+    KernelConfig({
+        'BlockWarpsK': 4, 'BlockWarpsM': 2, 'BlockWarpsN': 2, 
+        'WarpOuterM': 2, 'WarpOuterN': 2, 'WarpMidM': 4, 
+        'WarpMidN': 8, 'WarpInnerM': 4, 'WarpInnerN': 4
+    }),
+]
+
 hidet_kernel = KernelHandler(
     source_file='src/simt_gemm_hidet.cu',
-    compile_configs=list(gen_configs()),
+    compile_configs=hand_picked_configs,
     keys=['m', 'k', 'n'],
     platform='nvidia',
     disable_benchmark=False,
@@ -50,7 +58,7 @@ def hidet_simt(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     assert len(a.shape) == len(b.shape) == 2
     m, k = a.shape
     n = b.shape[1]
-    c = torch.empty((m, n), device=a.device, dtype=a.dtype)
+    c = torch.zeros((m, n), device=a.device, dtype=a.dtype) - 1
     hidet_kernel(a, b, c, m=m, k=k, n=n)
     return c
 

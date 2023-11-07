@@ -369,7 +369,7 @@ class KernelHandler:
                 self.kernel_times[runtime_key] = {}
             best_so_name = None
             best_time = float('inf')
-            for so_name, func in self.launch_funcs.items():
+            for so_name, func in tqdm(self.launch_funcs.items(), desc='Benchmarking kernels'):
                 if so_name in self.kernel_times[runtime_key]:
                     time = self.kernel_times[runtime_key][so_name]
                     if time < best_time:

@@ -443,27 +443,13 @@ extern "C" __attribute__((visibility("default"))) bool LAUNCH_NAME(float* a, flo
     dim3 grid(cdiv(m, BlockM), cdiv(n, BlockN));
     dim3 block(WarpM * WarpN * warp_size);
 
-    int used_smem = BlockM * BlockK * sizeof(TYPE) + BlockK * BlockN * sizeof(TYPE);
-    used_smem = my_max(used_smem, BlockM * BlockN * sizeof(TYPE));
-    if (used_smem > smem) {
-        printf("smem overflow: %d > %d\n", used_smem, smem);
-        return false;
-    }
-
-    int used_regs = sizeof(TYPE) * (TM * TK + TK * TN + TM * TN) * WarpM * WarpN;
-    if (used_regs > regs) {
-        printf("regs overflow: %d > %d\n", used_regs, regs);
-        return false;
-    }
     if (ThreadM * ThreadK * ThreadN != warp_size) {
         printf("ThreadM * ThreadK * ThreadN != warp_size, (%d, %d, %d) != %d\n", ThreadM, ThreadK, ThreadN, warp_size);
         return false;
     }
-
+    
     auto kernel = simt_gemm_kernelv4<32>; 
     kernel<<<grid, block>>>(a, b, c, m, n, k);
-
-    
 
     // check error
     auto error = cudaGetLastError();

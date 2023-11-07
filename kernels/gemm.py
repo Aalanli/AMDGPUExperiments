@@ -86,7 +86,7 @@ hand_picked_configs = [
 
 kernel_simt = KernelHandler(
     source_file='src/simt_gemm.cu',
-    compile_configs=list(gen_configs()),
+    compile_configs=hand_picked_configs,
     keys=['m', 'k', 'n'],
     platform='nvidia',
     disable_benchmark=False,
