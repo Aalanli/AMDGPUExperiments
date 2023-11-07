@@ -1,5 +1,5 @@
 #include <cstdio>
-
+#include "utils.hpp"
 
 #ifndef LAUNCH_NAME
 #define LAUNCH_NAME simt_gemm
@@ -54,28 +54,6 @@
 #define TN 4
 #endif
 
-/// multidimensional static shaped tensor
-template <typename T, int D1, int... dims>
-struct Tensor {
-    static constexpr int dim = D1;
-    static constexpr int stride = Tensor<T, dims...>::dim * Tensor<T, dims...>::stride;
-    T* data;
-    __host__ __device__ inline Tensor(T* ptr) : data(ptr) {}
-    __host__ __device__ inline Tensor<T, dims...> operator[](int i) {
-        return Tensor<T, dims...>(data + i * stride);
-    }
-};
-
-template <typename T, int D1>
-struct Tensor<T, D1> {
-    static constexpr int dim = D1;
-    static constexpr int stride = 1;
-    T* data;
-    __host__ __device__ inline Tensor(T* ptr) : data(ptr) {}
-    __host__ __device__ inline T& operator[](int i) {
-        return data[i];
-    }
-};
 
 __device__ __host__ constexpr int load_factor(const int nthreads, const int min_contiguous, const int dim) {
     int max_load_factor = dim / min_contiguous;
@@ -158,16 +136,6 @@ __device__ __forceinline__ void mma(float (&a)[M][K], float (&b)[K][N], float (&
     }
 }
 
-/// constexpr max
-template <int A, int B>
-struct Max {
-    static constexpr int value = A > B ? A : B;
-};
-
-int my_max(int a, int b) {
-    return a > b ? a : b;
-}
-
 template <int warpSize>
 __device__ __forceinline__ float warp_reduce(float data) {
     int lane = threadIdx.x % warpSize;
@@ -176,17 +144,6 @@ __device__ __forceinline__ float warp_reduce(float data) {
     return data;
 }
 
-__device__ constexpr unsigned int next_power_of_2(const unsigned int a) {
-    unsigned int v = a;
-    v--;
-    v |= v >> 1;
-    v |= v >> 2;
-    v |= v >> 4;
-    v |= v >> 8;
-    v |= v >> 16;
-    v += 1;
-    return v;
-}
 
 template <int D1, int D2>
 __device__ void debug_print_smem(Tensor<float, D1, D2> &a) {
@@ -201,34 +158,6 @@ __device__ void debug_print_smem(Tensor<float, D1, D2> &a) {
     }
 }
 
-__device__ void debug_print_block(float v, dim3 strides) {
-    int tid = threadIdx.x;// + threadIdx.y * blockDim.x + threadIdx.z * blockDim.x * blockDim.y;
-    int x_tile = tid % strides.x;
-    int y_tile = (tid / strides.x) % strides.y;
-    int z_tile = tid / (strides.x * strides.y);
-
-    int n_threads = blockDim.x * blockDim.y * blockDim.z;
-    for (int i = 0; i < n_threads; ++i) {
-        int ix = i % strides.x;
-        int iy = (i / strides.x) % strides.y;
-        int iz = i / (strides.x * strides.y);
-
-        if (ix == x_tile && iy == y_tile && iz == z_tile) {
-            // printf("[%d %d]: ", ix, iy);
-            if (ix == 0 && iy == 0) {
-                printf("z=%d [%d, %d]\n", iz, strides.y, strides.x);
-            }
-            printf("%f ", v);
-            if (ix == strides.x - 1) {
-                printf("\n");
-            }
-            if (ix == strides.x - 1 && iy == strides.y - 1) {
-                printf("----------------\n");
-            }
-        }
-        __syncthreads();
-    }
-}
 
 // 1. effect of vectorized load
 // 2. effect of block-level smem pipeling (global -> reg -> smem)
@@ -420,11 +349,8 @@ __global__ void __launch_bounds__(WarpM * /*WarpK* */ WarpN * warpSize) simt_gem
     });
 }
 
-__host__ __device__ int cdiv(int a, int b) {
-    return (a + b - 1) / b;
-}
 
-extern "C" __attribute__((visibility("default"))) bool LAUNCH_NAME(float* a, float* b, float* c, int m, int k, int n) {
+EXPORT bool LAUNCH_NAME(float* a, float* b, float* c, int m, int k, int n) {
 
     cudaDeviceProp prop;
     cudaGetDeviceProperties(&prop, 0);
@@ -436,7 +362,7 @@ extern "C" __attribute__((visibility("default"))) bool LAUNCH_NAME(float* a, flo
     dim3 block(WarpM * WarpN * warp_size);
 
     int used_smem = BlockM * BlockK * sizeof(TYPE) + BlockK * BlockN * sizeof(TYPE);
-    used_smem = my_max(used_smem, BlockM * BlockN * sizeof(TYPE));
+    used_smem = hmax(used_smem, BlockM * BlockN * sizeof(TYPE));
     if (used_smem > smem) {
         printf("smem overflow: %d > %d\n", used_smem, smem);
         return false;

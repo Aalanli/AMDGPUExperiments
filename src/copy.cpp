@@ -10,7 +10,7 @@
 #include <stdlib.h>
 #include <string>
 
-#include "utils.hpp"
+#include "hip_utils.hpp"
 
 
 

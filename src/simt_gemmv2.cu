@@ -164,7 +164,7 @@ struct Max {
     static constexpr int value = A > B ? A : B;
 };
 
-int my_max(int a, int b) {
+int hmax(int a, int b) {
     return a > b ? a : b;
 }
 
@@ -425,7 +425,7 @@ extern "C" __attribute__((visibility("default"))) bool LAUNCH_NAME(float* a, flo
     dim3 block(WarpM * WarpN * warp_size);
 
     int used_smem = BlockM * BlockK * sizeof(TYPE) + BlockK * BlockN * sizeof(TYPE);
-    used_smem = my_max(used_smem, BlockM * BlockN * sizeof(TYPE));
+    used_smem = hmax(used_smem, BlockM * BlockN * sizeof(TYPE));
     if (used_smem > smem) {
         printf("smem overflow: %d > %d\n", used_smem, smem);
         return false;

@@ -32,7 +32,8 @@ add_executable(helloworld
     ${CMAKE_SOURCE_DIR}/src/simt_gemm.cpp
     ${CMAKE_SOURCE_DIR}/src/simt_gemmv2.cu
     ${CMAKE_SOURCE_DIR}/src/ds_perm.cpp
-    ${CMAKE_SOURCE_DIR}/src/pipeline_test.cpp    
+    ${CMAKE_SOURCE_DIR}/src/pipeline_test.cpp
+    ${CMAKE_SOURCE_DIR}/src/simt_gemm_hidet.cpp 
     # ${CMAKE_SOURCE_DIR}/src/test_void_call.cpp
 )
 # Link Libraries - HIP Device and OpenMP.

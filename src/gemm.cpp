@@ -32,7 +32,7 @@
 #include <stdlib.h>
 #include <vector>
 #include <string>
-#include "utils.hpp"
+#include "hip_utils.hpp"
 
 #ifndef CHECK_ROCBLAS_STATUS
 #define CHECK_ROCBLAS_STATUS(status)                  \

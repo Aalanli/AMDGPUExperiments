@@ -1,4 +1,4 @@
-#include "utils.hpp"
+#include "hip_utils.hpp"
 #include <cassert>
 #include <cstdio>
 #include <hip/amd_detail/amd_hip_runtime.h>

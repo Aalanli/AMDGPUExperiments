@@ -1,26 +1,29 @@
-#pragma once
+/// constexpr max
+template <int A, int B>
+struct Max {
+    static constexpr int value = A > B ? A : B;
+};
 
-#include "hip/hip_runtime.h"
-#include <hip/amd_detail/amd_hip_runtime.h>
-// #include <hip/amd_detail/amd_hip_vector_types.h>
-#include <hip/hip_runtime_api.h>
+__host__ __device__ constexpr inline unsigned int next_power_of_2(const unsigned int a) {
+    unsigned int v = a;
+    v--;
+    v |= v >> 1;
+    v |= v >> 2;
+    v |= v >> 4;
+    v |= v >> 8;
+    v |= v >> 16;
+    v += 1;
+    return v;
+}
 
-#include <stdio.h>
-#include <stdlib.h>
+inline int hmax(int a, int b) {
+    return a > b ? a : b;
+}
 
-#ifndef HIP_ASSERT
-#define HIP_ASSERT(error)                    \
-    if(error != hipSuccess)                       \
-    {                                             \
-        fprintf(stderr,                           \
-                "hip error: '%s'(%d) at %s:%d\n", \
-                hipGetErrorString(error),         \
-                error,                            \
-                __FILE__,                         \
-                __LINE__);                        \
-        exit(EXIT_FAILURE);                       \
-    }
-#endif
+__host__ __device__ inline int cdiv(int a, int b) {
+    return (a + b - 1) / b;
+}
+
 
 #ifndef EXPORT
 #define EXPORT extern "C" __attribute__((visibility("default")))
@@ -28,66 +31,56 @@
 
 #define KERNEL(lb_) static __global__ __launch_bounds__((lb_)) void
 
-void __global__ inline init_kernel(float* __restrict__ a, float v, int n) {
-    const int stride = blockDim.x * gridDim.x;
-    int tid = threadIdx.x + blockIdx.x * blockDim.x;
-    while (tid < n) {
-        a[tid] = v;
-        tid += stride;
+
+__device__ void debug_print_block(float v, dim3 strides) {
+    int tid = threadIdx.x;// + threadIdx.y * blockDim.x + threadIdx.z * blockDim.x * blockDim.y;
+    int x_tile = tid % strides.x;
+    int y_tile = (tid / strides.x) % strides.y;
+    int z_tile = tid / (strides.x * strides.y);
+
+    int n_threads = blockDim.x * blockDim.y * blockDim.z;
+    for (int i = 0; i < n_threads; ++i) {
+        int ix = i % strides.x;
+        int iy = (i / strides.x) % strides.y;
+        int iz = i / (strides.x * strides.y);
+
+        if (ix == x_tile && iy == y_tile && iz == z_tile) {
+            // printf("[%d %d]: ", ix, iy);
+            if (ix == 0 && iy == 0) {
+                printf("z=%d [%d, %d]\n", iz, strides.y, strides.x);
+            }
+            printf("%f ", v);
+            if (ix == strides.x - 1) {
+                printf("\n");
+            }
+            if (ix == strides.x - 1 && iy == strides.y - 1) {
+                printf("----------------\n");
+            }
+        }
+        __syncthreads();
     }
 }
 
-void inline fill(float* __restrict__ a, float v, int n) {
-    int n_grid = (n + 1023) / 1024;
-    hipLaunchKernelGGL(init_kernel, dim3(n_grid), dim3(1024), 0, 0, a, v, n);
-}
 
-
-template <typename F>
-float inline bench(F&& func, int warmup, int iter) {
-    hipEvent_t starts[iter];
-    hipEvent_t   ends[iter];
-
-    for (int i = 0; i < iter; i++) {
-        hipEventCreate(starts + i);
-        hipEventCreate(ends + i);
+/// multidimensional static shaped tensor
+template <typename T, int D1, int... dims>
+struct Tensor {
+    static constexpr int dim = D1;
+    static constexpr int stride = Tensor<T, dims...>::dim * Tensor<T, dims...>::stride;
+    T* data;
+    __host__ __device__ inline Tensor(T* ptr) : data(ptr) {}
+    __host__ __device__ inline Tensor<T, dims...> operator[](int i) {
+        return Tensor<T, dims...>(data + i * stride);
     }
+};
 
-
-    float* temp_buf;
-    hipMalloc(&temp_buf, int(1e3));
-
-    for (int i = 0; i < warmup; i++) {
-        func();
+template <typename T, int D1>
+struct Tensor<T, D1> {
+    static constexpr int dim = D1;
+    static constexpr int stride = 1;
+    T* data;
+    __host__ __device__ inline Tensor(T* ptr) : data(ptr) {}
+    __host__ __device__ inline T& operator[](int i) {
+        return data[i];
     }
-
-    hipDeviceSynchronize();
-    for (int i = 0; i < iter; i++) {
-        fill(temp_buf, 0.0f, int(1e3));
-        hipEventRecord(starts[i]);
-
-        func();
-        hipEventRecord(ends[i]);
-
-    }
-    hipDeviceSynchronize();
-    float times = 0.0;
-    for (int i = 0; i < iter; i++) {
-        float t;
-        hipEventElapsedTime(&t, starts[i], ends[i]);
-        times += t;
-    }
-
-    hipFree(temp_buf);
-
-    for (int i = 0; i < iter; i++) {
-        hipEventDestroy(starts[i]);
-        hipEventDestroy(ends[i]);
-    }
-
-    return times / iter;
-}
-
-__device__ __host__ int inline cdiv(int a, int b) {
-    return (a + b - 1) / b;
-}
+};
