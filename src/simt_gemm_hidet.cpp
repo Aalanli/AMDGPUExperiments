@@ -23,7 +23,7 @@
 #endif
 
 #ifndef WarpMidM
-#define WarpMidM 4
+#define WarpMidM 8
 #endif
 
 #ifndef WarpMidN
@@ -209,7 +209,7 @@ __global__ __launch_bounds__(nthreads) void simt_gemm_hidet_kernel(
 #endif
 
 
-extern "C" __attribute__((visibility("default"))) bool LAUNCH_NAME(float* a, float* b, float* c, int m, int k, int n) {
+EXPORT bool LAUNCH_NAME(float* a, float* b, float* c, int m, int k, int n) {
     hipDeviceProp_t prop;
     hipGetDeviceProperties(&prop, 0);
     int warp_size = prop.warpSize;

@@ -2,6 +2,8 @@
 import torch
 from kernels import KernelHandler, KernelConfig
 
+
+# %%
 def gen_configs():
     for (bwm, bwn) in [(1, 1), (2, 2), (1, 2), (2, 1), (2, 4), (4, 2)]:
         for (wm, wn) in [(4, 8), (2, 16), (16, 2), (8, 4)]:
