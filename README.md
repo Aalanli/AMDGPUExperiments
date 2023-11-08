@@ -33,6 +33,7 @@ https://gpuopen.com/learn/amd-lab-notes/amd-lab-notes-profilers-readme/
 - Omnitrace => NsightSystems
 - Omniperf => NsightCompute
   - https://amdresearch.github.io/omniperf/installation.html
+
 | instruction            | blocks | regs per warp (a/b) | regs per warp (c/d) | CBSZ/ABID | BLGP  |
 | ---------------------  | ------ | ------------------- | ------------------- | --------- | ----- |
 | v_mfma_f32_32x32x1f32  | 2      | 1                   | 32                  | true      | true  |

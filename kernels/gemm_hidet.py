@@ -45,8 +45,8 @@ hand_picked_configs = [
 
 hidet_kernel = KernelHandler(
     source_file='src/simt_gemm_hidet.cu',
-    compile_configs=list(gen_configs()),
-    keys=['m', 'k', 'n'],
+    compile_configs=hand_picked_configs,
+    keys=['m', 'k', 'n', 'version'],
     platform='nvidia',
     disable_benchmark=False,
     ignore_compile_errors=True,
@@ -54,13 +54,13 @@ hidet_kernel = KernelHandler(
 )
 
 
-def hidet_simt(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def hidet_simt(a: torch.Tensor, b: torch.Tensor, version=0) -> torch.Tensor:
     assert a.shape[1] == b.shape[0]
     assert len(a.shape) == len(b.shape) == 2
     m, k = a.shape
     n = b.shape[1]
     c = torch.empty((m, n), device=a.device, dtype=a.dtype)
-    hidet_kernel(a, b, c, m=m, k=k, n=n)
+    hidet_kernel(a, b, c, m=m, k=k, n=n, version=version)
     return c
 
 
@@ -71,7 +71,7 @@ if __name__ == '__main__':
     a = torch.randn([1024, 1024], device='cuda')
     b = torch.randn([1024, 1024], device='cuda')
     c1 = a @ b
-    c = hidet_simt(a, b)
+    c = hidet_simt(a, b, 2)
     err = (c1 - c).abs()
     print(c)
     print(err)

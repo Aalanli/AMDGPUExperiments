@@ -15,7 +15,9 @@ simt_gemmv2(a, b)
 simt_gemmv3(a, b)
 simt_gemmv4(a, b)
 simt_gemmv5(a, b)
-hidet_simt(a, b)
+hidet_simt(a, b, version=0)
+hidet_simt(a, b, version=1)
+hidet_simt(a, b, version=2)
 rocgemm(a, b, version=2)
 
 import hidet
