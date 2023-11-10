@@ -5,6 +5,7 @@ from kernels.gemmv3 import simt_gemmv3
 from kernels.gemmv4 import simt_gemmv4
 from kernels.gemmv5 import simt_gemmv5
 from kernels.gemm_hidet import hidet_simt
+from kernels.gemmv6 import simt_gemmv6
 import torch
 
 a = torch.randn([1024, 1024], device='cuda')
@@ -18,6 +19,7 @@ simt_gemmv5(a, b)
 hidet_simt(a, b, version=0)
 hidet_simt(a, b, version=1)
 hidet_simt(a, b, version=2)
+simt_gemmv6(a, b)
 rocgemm(a, b, version=2)
 
 import hidet

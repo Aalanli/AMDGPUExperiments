@@ -248,6 +248,7 @@ class KernelHandler:
             self.source = f.read()
         folderhash = hashlib.sha256(self.source.encode('utf-8')).hexdigest()
         dir_path = os.path.join(CACHE_DIR, file_name_no_ext + '_' + folderhash[:16])
+        kernels_path = os.path.join(dir_path, "kernels")
         self.dir_path = dir_path
 
         self.keys = keys
@@ -255,6 +256,9 @@ class KernelHandler:
 
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
+        if not os.path.exists(kernels_path):
+            os.makedirs(kernels_path)
+    
 
         self.so_name2_config: Dict[str, KernelConfig] = {
             config.so_name(): config for config in compile_configs
@@ -264,7 +268,7 @@ class KernelHandler:
             with open(os.path.join(dir_path, 'failed.json'), 'r') as f:
                 self.failed_to_compile: Set[str] = set(json.load(f))
         need_to_compile = list(filter(
-            lambda x: not os.path.exists(os.path.join(dir_path, x)) and x not in self.failed_to_compile, self.so_name2_config.keys()
+            lambda x: not os.path.exists(os.path.join(kernels_path, x)) and x not in self.failed_to_compile, self.so_name2_config.keys()
         ))
         extra_params = {k: str(v) for k, v in compile_params.items()} if compile_params is not None else {}
         if len(need_to_compile) > 0:
@@ -282,7 +286,7 @@ class KernelHandler:
                     source_file=self.source_file,
                     amd=platform=='amd',
                     compile_params=compile_param,
-                    out_path=os.path.join(dir_path, so_name)
+                    out_path=os.path.join(kernels_path, so_name)
                 ))
             
             if parallel_compile:
@@ -302,10 +306,10 @@ class KernelHandler:
         # so_name -> so_launch_func
         self.launch_funcs = {}
         for so_name, config in self.so_name2_config.items():
-            lib_path = os.path.join(dir_path, so_name)
+            lib_path = os.path.join(kernels_path, so_name)
             if not os.path.exists(lib_path) or so_name in self.failed_to_compile:
                 continue
-            lib = ctypes.cdll.LoadLibrary(os.path.join(dir_path, so_name))
+            lib = ctypes.cdll.LoadLibrary(os.path.join(kernels_path, so_name))
             assert hasattr(lib, config.launch_name()), f'Library {so_name} does not have launch function {config.launch_name()}'
             launch_func = getattr(lib, config.launch_name())
             launch_func.restype = ctypes.c_bool
