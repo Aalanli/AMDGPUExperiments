@@ -345,6 +345,41 @@ ds_bpermute_b32 dest, addr, src [offset:addr_offset] // pull from src
 Haha apparently cuda equivalents are in `#include <hip/amd_detail/amd_warp_functions.h>`
 So no need to write inline assembly to replicate cuda warp shuffles
 
+### Interesting Instructions used in ROCBlas
+[CDNA2 ISA Manual](https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/instruction-set-architectures/instinct-mi200-cdna2-instruction-set-architecture.pdf)
+
+```asm
+/******************************************/
+/* 2x2 thread-tile                        */
+/******************************************/
+.macro MAC_2x2_X0
+// Component.MAC.MAC_I8X4_Plain
+v_dot4_i32_i8 v[vgprValuC+0+0*2], v[vgprValuA_X0_I0+0], v[vgprValuB_X0_I0+0], v[vgprValuC+0+0*2] op_sel:[0,0] op_sel_hi:[1,1] //valuC[0]
+s_setprio 1 // Raise priority while processing macs
+v_dot4_i32_i8 v[vgprValuC+1+0*2], v[vgprValuA_X0_I0+1], v[vgprValuB_X0_I0+0], v[vgprValuC+1+0*2] op_sel:[0,0] op_sel_hi:[1,1] //valuC[1]
+v_dot4_i32_i8 v[vgprValuC+0+1*2], v[vgprValuA_X0_I0+0], v[vgprValuB_X0_I0+1], v[vgprValuC+0+1*2] op_sel:[0,0] op_sel_hi:[1,1] //valuC[2]
+v_dot4_i32_i8 v[vgprValuC+1+1*2], v[vgprValuA_X0_I0+1], v[vgprValuB_X0_I0+1], v[vgprValuC+1+1*2] op_sel:[0,0] op_sel_hi:[1,1] //valuC[3]
+s_setprio 0 // Reset priority after macs
+.endm
+.macro MAC_2x2_X1
+// Component.MAC.MAC_I8X4_Plain
+v_dot4_i32_i8 v[vgprValuC+0+0*2], v[vgprValuA_X1_I0+0], v[vgprValuB_X1_I0+0], v[vgprValuC+0+0*2] op_sel:[0,0] op_sel_hi:[1,1] //valuC[0]
+s_setprio 1 // Raise priority while processing macs
+v_dot4_i32_i8 v[vgprValuC+1+0*2], v[vgprValuA_X1_I0+1], v[vgprValuB_X1_I0+0], v[vgprValuC+1+0*2] op_sel:[0,0] op_sel_hi:[1,1] //valuC[1]
+v_dot4_i32_i8 v[vgprValuC+0+1*2], v[vgprValuA_X1_I0+0], v[vgprValuB_X1_I0+1], v[vgprValuC+0+1*2] op_sel:[0,0] op_sel_hi:[1,1] //valuC[2]
+v_dot4_i32_i8 v[vgprValuC+1+1*2], v[vgprValuA_X1_I0+1], v[vgprValuB_X1_I0+1], v[vgprValuC+1+1*2] op_sel:[0,0] op_sel_hi:[1,1] //valuC[3]
+s_setprio 0 // Reset priority after macs
+.endm
+```
+
+> v_dot4_i32_i8
+```
+D.i32 = S0.i8[0] * S1.i8[0] + S0.i8[1] * S1.i8[1] + S0.i8[2] *
+S1.i8[2] + S0.i8[3] * S1.i8[3] + S2.i32
+```
+
+Cijk_Ailk_Bljk_SB_MT64x32x32_MI16x16x4x1_SE_1LDSB0_APM1_ABV0_ACED0_AF0EM1_AF1EM1_AMAS0_ASE_ASGT_ASLT_ASAE01_ASCE01_ASEM1_AAC0_BL1_BS1_DTL0_DTVA0_DVO0_ETSP_EPS0_FL0_GRPM1_GRVW4_GSU1_GSUASB_GLS0_ISA90a_IU1_K1_KLA_LBSPP128_LPA0_LPB4_LDL1_LRVW2_LWPMn1_LDW0_MAC_MIAV0_MDA2_MO40_NTA0_NTB0_NTC0_NTD0_NEPBS0_NLCA1_NLCB1_ONLL1_OPLV0_PK0_PAP0_PGR2_PLR9_RK0_SIA3_SS0_SU32_SUM0_SUS256_SCIUI1_SPO0_SRVW2_SSO0_SVW4_SNLL0_TT2_16_TLDS1_USFGROn1_VAW1_VSn1_VW1_WSGRA1_WSGRB1_WS64_WG32_8_1_WGM2.kd
+
 
 ## MISC
 **Torch HIP Semantics**
