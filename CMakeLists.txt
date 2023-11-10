@@ -12,7 +12,7 @@ list(APPEND CMAKE_PREFIX_PATH /opt/rocm/hip /opt/rocm /opt/rocm/rocblas)
 # ex. set(AMDGPU_TARGETS "gfx803;gfx900;gfx906")
 find_package(hip REQUIRED)
 find_package(rocblas REQUIRED)
-
+set(AMDGPU_TARGETS "gfx803;gfx900;gfx906")
 
 # Find OpenMP.
 # find_package(OpenMP REQUIRED)

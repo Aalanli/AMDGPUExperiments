@@ -14,8 +14,7 @@ import torch
 
 def build(ignore_error, source, out_path, amd=True, **kwargs):
     # print(f'Building {source} to {out_path}')
-    args = [f' -D {k}={v} ' for k, v in kwargs.items()]
-    args = ''.join(args) + '-fPIC -funroll-loops -ffast-math -O3'
+    args = [f'-D {k}={v}' for k, v in kwargs.items()] + ['-fPIC', '-funroll-loops', '-ffast-math', '-O3', '-g']
     assert os.path.exists(source) and os.path.isfile(source)
 
     file = os.path.basename(source)
@@ -23,9 +22,12 @@ def build(ignore_error, source, out_path, amd=True, **kwargs):
     std_err = subprocess.DEVNULL if ignore_error else None
     if amd:
         assert file_ext == '.cpp', f'AMD kernel must be a cpp file, got {file_ext}'
-        subprocess.run(['hipcc', '-O3', '-c', source, args, '-o', out_path + '_', '-I', 'include/'], check=True, shell=False)
-        subprocess.run(['hipcc', '-shared', '-o', out_path + '_', out_path], check=True, shell=False)
-    elif file_ext == '.cpp':
+        subprocess.run(['hipcc', '-shared', source] + args + ['-o', out_path, '-I', 'include/'], check=True, shell=False, stderr=std_err)
+        # subprocess.run(['hipcc', '-shared', '-o', out_path, out_path + '_'], check=True, shell=False)
+        return
+    
+    args = ' '.join(args[:-1])    
+    if file_ext == '.cpp':
         env = os.environ.copy()
         env['HIP_PLATFORM'] = 'nvidia'
         subprocess.run(['hipcc', '-O3', '-c', source, '--compiler-options', args, '-o', out_path, '-I', 'include/'], check=True, env=env, shell=False, stdout=subprocess.DEVNULL, stderr=std_err)
@@ -294,14 +296,17 @@ class KernelHandler:
             else:
                 res = [build_worker(config, ignore_compile_errors) for config in compile_items]
             
+            successfully_compiled = 0
             for i in range(len(res)):
                 if not res[i]: # failed to compile
                     self.failed_to_compile.add(need_to_compile[i])     
                 if res[i] and need_to_compile[i] in self.failed_to_compile:
                     self.failed_to_compile.remove(need_to_compile[i])
-        
-        with open(os.path.join(dir_path, 'failed.json'), 'w') as f:
-            json.dump(list(self.failed_to_compile), f)
+                    successfully_compiled += 1
+
+        if ignore_compile_errors:
+            with open(os.path.join(dir_path, 'failed.json'), 'w') as f:
+                json.dump(list(self.failed_to_compile), f)
 
         # so_name -> so_launch_func
         self.launch_funcs = {}
@@ -337,7 +342,7 @@ class KernelHandler:
     
     def dump_meta(self):
         with open(os.path.join(self.dir_path, 'meta_data.json'), 'w') as f:
-            json.dump(self.kernel_map, f)
+            json.dump(self.kernel_map, f, indent=2)
         ordered_timings = []
         for k, v in self.kernel_times.items():
             v = list(v.items())
@@ -346,7 +351,7 @@ class KernelHandler:
         ordered_timings.sort(key=lambda x: x[0])
         ordered_timings = {k: {k1: v1 for k1, v1 in v} for k, v in ordered_timings}
         with open(os.path.join(self.dir_path, 'kernel_times.json'), 'w') as f:
-            json.dump(ordered_timings, f)
+            json.dump(ordered_timings, f, indent=2)
     
     def __call__(self, *args, **kwargs):
         runtime_args = kwargs

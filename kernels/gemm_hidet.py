@@ -1,11 +1,15 @@
 # %%
 import torch
-from kernels import KernelHandler, KernelConfig
+from kernels import KernelHandler, KernelConfig, PLATFORM
 
 
 def gen_configs():
+    if PLATFORM == 'nvidia':
+        block_warps = [(4, 8), (2, 16), (16, 2), (8, 4)]
+    else:
+        block_warps = [(4, 16), (16, 4), (8, 8)]
     for (bwm, bwn) in [(1, 1), (2, 2), (1, 2), (2, 1), (2, 4), (4, 2)]:
-        for (wm, wn) in [(4, 8), (2, 16), (16, 2), (8, 4)]:
+        for (wm, wn) in block_warps:
             for (wom, won) in [(1, 1), (1, 2), (2, 2), (1, 3), (3, 1), (2, 3), (3, 2), (3, 3)]:
                 for bk in [4, 8, 16]:
                     for (tm, tn) in [(4, 4)]:
@@ -35,19 +39,35 @@ def gen_configs():
                             'WarpInnerN': tn,
                         })
 
-hand_picked_configs = [
-    KernelConfig({
-        'BlockWarpsK': 4, 'BlockWarpsM': 2, 'BlockWarpsN': 2, 
-        'WarpOuterM': 2, 'WarpOuterN': 2, 'WarpMidM': 4, 
-        'WarpMidN': 8, 'WarpInnerM': 4, 'WarpInnerN': 4
-    }),
-]
+if PLATFORM == 'nvidia':
+    hand_picked_configs = [
+        KernelConfig({
+            'BlockWarpsK': 4, 'BlockWarpsM': 2, 'BlockWarpsN': 2, 
+            'WarpOuterM': 2, 'WarpOuterN': 2, 'WarpMidM': 4, 
+            'WarpMidN': 8, 'WarpInnerM': 4, 'WarpInnerN': 4
+        }),
+    ]
+else:
+    hand_picked_configs = [
+        KernelConfig({
+            'BlockWarpsK': 4, 'BlockWarpsM': 2, 'BlockWarpsN': 2, 
+            'WarpOuterM': 2, 'WarpOuterN': 2, 'WarpMidM': 8, 
+            'WarpMidN': 8, 'WarpInnerM': 4, 'WarpInnerN': 4
+        }),
+        KernelConfig({
+            'BlockWarpsK': 8, 'BlockWarpsM': 2, 'BlockWarpsN': 4, 
+            'WarpOuterM': 1, 'WarpOuterN': 1, 'WarpMidM': 8, 
+            'WarpMidN': 8, 'WarpInnerM': 4, 'WarpInnerN': 4
+        }),
+    ]
+
+source_file = 'src/simt_gemm_hidet.cu' if PLATFORM == 'nvidia' else 'src/simt_gemm_hidet.cpp'
 
 hidet_kernel = KernelHandler(
-    source_file='src/simt_gemm_hidet.cu',
-    compile_configs=hand_picked_configs,
+    source_file=source_file,
+    compile_configs=list(gen_configs()),
     keys=['m', 'k', 'n', 'version'],
-    platform='nvidia',
+    platform=PLATFORM,
     disable_benchmark=False,
     ignore_compile_errors=True,
     parallel_compile=True
@@ -68,8 +88,8 @@ if __name__ == '__main__':
     d = 64
     a = torch.arange(0, 64, device='cuda')[None, :] * 64 + torch.arange(0, 64, device='cuda')[:, None]
     a = a.float()
-    a = torch.randn([1024, 1024], device='cuda')
-    b = torch.randn([1024, 1024], device='cuda')
+    a = torch.randn([1792, 1792], device='cuda')
+    b = torch.randn([1792, 1792], device='cuda')
     c1 = a @ b
     c = hidet_simt(a, b, 3)
     err = (c1 - c).abs()
