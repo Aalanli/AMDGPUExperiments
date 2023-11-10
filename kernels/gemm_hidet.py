@@ -71,7 +71,7 @@ if __name__ == '__main__':
     a = torch.randn([1024, 1024], device='cuda')
     b = torch.randn([1024, 1024], device='cuda')
     c1 = a @ b
-    c = hidet_simt(a, b, 2)
+    c = hidet_simt(a, b, 3)
     err = (c1 - c).abs()
     print(c)
     print(err)

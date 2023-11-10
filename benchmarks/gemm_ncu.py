@@ -18,6 +18,7 @@ simt_gemmv5(a, b)
 hidet_simt(a, b, version=0)
 hidet_simt(a, b, version=1)
 hidet_simt(a, b, version=2)
+hidet_simt(a, b, version=3)
 rocgemm(a, b, version=2)
 
 import hidet
