@@ -11,11 +11,17 @@ if __name__ == '__main__':
         b = torch.randn([k, n], device='cuda')
         return lambda: hidet_simt(a, b)
     
+    def bench_simt_hidetv2(i, **kwargs):
+        m, k, n = i
+        a = torch.randn([m, k], device='cuda')
+        b = torch.randn([k, n], device='cuda')
+        return lambda: hidet_simt(a, b, version=1)
+    
     def bench_simt_hidetv3(i, **kwargs):
         m, k, n = i
         a = torch.randn([m, k], device='cuda')
         b = torch.randn([k, n], device='cuda')
-        return lambda: hidet_simt(a, b, version=3)
+        return lambda: hidet_simt(a, b, version=2)
     
     def bench_blas(i, **kwargs):
         m, k, n = i
@@ -34,6 +40,7 @@ if __name__ == '__main__':
     # bench.bench(bench_rocgemm2, 'naive')
     bench.bench(bench_blas, 'blas')
     bench.bench(bench_simt_hidet, 'simt_hidet')
+    bench.bench(bench_simt_hidetv2, 'simt_hidetv2')
     bench.bench(bench_simt_hidetv3, 'simt_hidetv3')
     data = bench.run()
     data.show_plot()

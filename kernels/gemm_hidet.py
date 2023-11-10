@@ -49,11 +49,11 @@ if PLATFORM == 'nvidia':
     ]
 else:
     hand_picked_configs = [
-        KernelConfig({
-            'BlockWarpsK': 4, 'BlockWarpsM': 2, 'BlockWarpsN': 2, 
-            'WarpOuterM': 2, 'WarpOuterN': 2, 'WarpMidM': 8, 
-            'WarpMidN': 8, 'WarpInnerM': 4, 'WarpInnerN': 4
-        }),
+        # KernelConfig({
+        #     'BlockWarpsK': 4, 'BlockWarpsM': 2, 'BlockWarpsN': 2, 
+        #     'WarpOuterM': 2, 'WarpOuterN': 2, 'WarpMidM': 8, 
+        #     'WarpMidN': 8, 'WarpInnerM': 4, 'WarpInnerN': 4
+        # }),
         KernelConfig({
             'BlockWarpsK': 8, 'BlockWarpsM': 2, 'BlockWarpsN': 4, 
             'WarpOuterM': 1, 'WarpOuterN': 1, 'WarpMidM': 8, 
@@ -88,10 +88,10 @@ if __name__ == '__main__':
     d = 64
     a = torch.arange(0, 64, device='cuda')[None, :] * 64 + torch.arange(0, 64, device='cuda')[:, None]
     a = a.float()
-    a = torch.randn([1792, 1792], device='cuda')
-    b = torch.randn([1792, 1792], device='cuda')
+    a = torch.randn([1972, 1972], device='cuda')
+    b = torch.randn([1972, 1972], device='cuda')
     c1 = a @ b
-    c = hidet_simt(a, b, 3)
+    c = hidet_simt(a, b, 2)
     err = (c1 - c).abs()
     print(c)
     print(err)

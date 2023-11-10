@@ -1,0 +1,1 @@
+python3 gemm_omniperf.py
