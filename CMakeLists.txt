@@ -13,6 +13,8 @@ list(APPEND CMAKE_PREFIX_PATH /opt/rocm/hip /opt/rocm /opt/rocm/rocblas)
 # ex. set(AMDGPU_TARGETS "gfx803;gfx900;gfx906")
 find_package(hip REQUIRED)
 find_package(rocblas REQUIRED)
+find_package(composable_kernel COMPONENTS device_operations)
+
 # set(AMDGPU_TARGETS "gfx90a")
 
 # Find OpenMP.
@@ -31,8 +33,16 @@ add_executable(ck_test
 # Link Libraries - HIP Device and OpenMP.
 target_include_directories(ck_test PRIVATE include)
 target_compile_options(ck_test PRIVATE ${OpenMP_CXX_FLAGS})
-target_link_libraries(ck_test PRIVATE hip::device ${OpenMP_CXX_FLAGS})
+target_link_libraries(ck_test PRIVATE hip::device composable_kernel::device_operations ${OpenMP_CXX_FLAGS})
 
+add_library(
+    ck_gemm SHARED
+    ${CMAKE_SOURCE_DIR}/src/composable_kernel_client.cpp    
+)
+
+target_include_directories(ck_gemm PRIVATE include)
+target_compile_options(ck_gemm PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(ck_gemm PRIVATE hip::device composable_kernel::device_operations ${OpenMP_CXX_FLAGS})
 
 
 # Preparing the executable.
