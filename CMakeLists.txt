@@ -1,4 +1,5 @@
 project(GPUExperiments)
+add_compile_options(-std=c++17)
 
 cmake_minimum_required(VERSION 3.16)
 
@@ -12,7 +13,7 @@ list(APPEND CMAKE_PREFIX_PATH /opt/rocm/hip /opt/rocm /opt/rocm/rocblas)
 # ex. set(AMDGPU_TARGETS "gfx803;gfx900;gfx906")
 find_package(hip REQUIRED)
 find_package(rocblas REQUIRED)
-set(AMDGPU_TARGETS "gfx803;gfx900;gfx906")
+# set(AMDGPU_TARGETS "gfx90a")
 
 # Find OpenMP.
 # find_package(OpenMP REQUIRED)
@@ -22,6 +23,16 @@ set(CMAKE_CXX_COMPILER ${HIP_HIPCC_EXECUTABLE})
 set(CMAKE_CXX_LINKER   ${HIP_HIPCC_EXECUTABLE})
 
 set(CMAKE_BUILD_TYPE Release)
+
+add_executable(ck_test
+    ${CMAKE_SOURCE_DIR}/src/composable_kernel.cpp
+)
+
+# Link Libraries - HIP Device and OpenMP.
+target_include_directories(ck_test PRIVATE include)
+target_compile_options(ck_test PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(ck_test PRIVATE hip::device ${OpenMP_CXX_FLAGS})
+
 
 
 # Preparing the executable.
@@ -34,7 +45,7 @@ add_executable(helloworld
     ${CMAKE_SOURCE_DIR}/src/ds_perm.cpp
     ${CMAKE_SOURCE_DIR}/src/pipeline_test.cpp
     ${CMAKE_SOURCE_DIR}/src/simt_gemm_hidet.cpp 
-    ${CMAKE_SOURCE_DIR}/src/mfma_gemm.cpp
+    # ${CMAKE_SOURCE_DIR}/src/mfma_gemm.cpp
     # ${CMAKE_SOURCE_DIR}/src/test_void_call.cpp
 )
 # Link Libraries - HIP Device and OpenMP.
