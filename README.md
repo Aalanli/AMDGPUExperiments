@@ -281,6 +281,38 @@ output gcn asm
 hipcc test.cpp -save-temps
 ```
 
+## Composable Kernel
+
+Compiler does not generate MUBUF/MTBUF instruction, but `global_load` flat buffer instructions
+
+Use this to force buffer loads, contained in `ck/utility/amd_buffer_addressing.hpp:145`
+```c++
+// buffer load fp32
+__device__ float
+llvm_amdgcn_raw_buffer_load_fp32(int32x4_t srsrc,
+                                 index_t voffset,
+                                 index_t soffset,
+                                 index_t glc_slc) __asm("llvm.amdgcn.raw.buffer.load.f32");
+
+__device__ float2_t
+llvm_amdgcn_raw_buffer_load_fp32x2(int32x4_t srsrc,
+                                   index_t voffset,
+                                   index_t soffset,
+                                   index_t glc_slc) __asm("llvm.amdgcn.raw.buffer.load.v2f32");
+
+__device__ float4_t
+llvm_amdgcn_raw_buffer_load_fp32x4(int32x4_t srsrc,
+                                   index_t voffset,
+                                   index_t soffset,
+                                   index_t glc_slc) __asm("llvm.amdgcn.raw.buffer.load.v4f32");
+```
+Where `srsrc` is the 128 bit buffer descriptor stored in sgprs
+srsrc[63:0] = addr of pointer
+srsrc[95:64] = element_space_size or 0xffffffff
+srsrc[127:96] = 0x00020000 
+See isa manual page 66, table 36 "buffer resource descriptor" for more details.
+
+
 ## MISC
 **Torch HIP Semantics**
 https://pytorch.org/docs/stable/notes/hip.html
