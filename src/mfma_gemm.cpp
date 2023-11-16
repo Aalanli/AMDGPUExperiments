@@ -131,14 +131,14 @@ __global__ void mfma_f32_16x16x4f32_gemm_kernel(
     for (int k = 0; k < cdiv(K, BLOCK_K); ++k) {
         load_a_g2s(k * BLOCK_K);
         load_b_g2s(k * BLOCK_K);
-        if (blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0) {
-            for (int i = 0; i < BLOCK_M; ++i) {
-                for (int j = 0; j < BLOCK_K; ++j) {
-                    printf("%f ", sA[i][j]);
-                }
-                printf("\n");
-            }
-        }
+        // if (blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0) {
+        //     for (int i = 0; i < BLOCK_N; ++i) {
+        //         for (int j = 0; j < BLOCK_K; ++j) {
+        //             printf("%f ", sB[j][i]);
+        //         }
+        //         printf("\n");
+        //     }
+        // }
         __syncthreads();
 
         for (int i = 0; i < BLOCK_K / mma_k; ++i) {
@@ -159,6 +159,20 @@ __global__ void mfma_f32_16x16x4f32_gemm_kernel(
         }
         __syncthreads();
     }
+    if (blockIdx.x == 0 && blockIdx.y == 0 && warp_id == 1) {
+        for (int i = 0; i < 64; ++i) {
+            if (lane == i) {
+                printf("thread %d\n", i);
+                for (int k = 0; k < 4; ++k) {
+                    printf("%f ", regs_c[0][0][k]);
+                }
+                printf("\n");
+            }
+            __syncthreads();
+
+        }
+    }
+
 
     store_c_r2g();
 }

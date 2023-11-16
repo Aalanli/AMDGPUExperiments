@@ -31,7 +31,8 @@ if __name__ == '__main__':
     a = torch.arange(0, 64, device='cuda')[None, :] + torch.arange(0, 64, device='cuda')[:, None] * 64
     a = a.float()
     # a = torch.randn([64, 64], device='cuda')
-    b = torch.ones([64, 64], device='cuda')
+    # b = torch.ones([64, 64], device='cuda')
+    b = torch.eye(64, device='cuda')
     c1 = a @ b
     c = mfma_gemmv1(a, b)
     err = (c1 - c).abs()
