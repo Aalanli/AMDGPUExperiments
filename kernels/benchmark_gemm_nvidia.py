@@ -55,7 +55,7 @@ if __name__ == '__main__':
     bench.bench(bench_simt_hidetv2, 'simtv2')
     bench.bench(bench_simt_hidetv3, 'simtv3')
     # bench.bench(bench_rocgemm, "gemm naive")
-    bench.bench(bench_triton, "triton")
+    # bench.bench(bench_triton, "triton")
     data = bench.run()
     data.show_plot()
     data.print_data()
