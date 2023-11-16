@@ -1,5 +1,6 @@
 #include <hip/hip_runtime.h>
 #include <stdio.h>
+#include <Python.h>
 
 int main() {
     hipDeviceProp_t dev;

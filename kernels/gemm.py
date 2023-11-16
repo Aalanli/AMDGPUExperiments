@@ -1,24 +1,25 @@
 # %%
 import torch
-from kernels import KernelHandler, KernelConfig
+from kernels import KernelHandler, KernelConfig, PLATFORM
 from kernels import Bench
 
+rocgemm_configs = [
+    KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 16, 'WARPSZ_M': 32, 'WARPSZ_N': 8, 'READ_A_DIM': 16, 'READ_B_DIM': 64, 'TYPE': 'float'}),
+    KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 16, 'WARPSZ_M': 64, 'WARPSZ_N': 8, 'READ_A_DIM': 16, 'READ_B_DIM': 64, 'TYPE': 'float'}),
+    KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 32, 'WARPSZ_M': 64, 'WARPSZ_N': 8, 'READ_A_DIM': 32, 'READ_B_DIM': 64, 'TYPE': 'float'}),
+    KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 32, 'WARPSZ_M': 32, 'WARPSZ_N': 16, 'READ_A_DIM': 32, 'READ_B_DIM': 64, 'TYPE': 'float'}),
+    KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 32, 'WARPSZ_M': 16, 'WARPSZ_N': 16, 'READ_A_DIM': 32, 'READ_B_DIM': 64, 'TYPE': 'float'}),
+    KernelConfig({'BLOCKSIZE_M': 128, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 16, 'WARPSZ_M': 32, 'WARPSZ_N': 16, 'READ_A_DIM': 16, 'READ_B_DIM': 64, 'TYPE': 'float'}),
+    KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 128, 'BLOCKSIZE_K': 16, 'WARPSZ_M': 16, 'WARPSZ_N': 32, 'READ_A_DIM': 16, 'READ_B_DIM': 64, 'TYPE': 'float'}),
+    KernelConfig({'BLOCKSIZE_M': 128, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 32, 'WARPSZ_M': 32, 'WARPSZ_N': 16, 'READ_A_DIM': 32, 'READ_B_DIM': 64, 'TYPE': 'float'}),
+    KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 128, 'BLOCKSIZE_K': 32, 'WARPSZ_M': 16, 'WARPSZ_N': 32, 'READ_A_DIM': 32, 'READ_B_DIM': 64, 'TYPE': 'float'}),
+    KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 64, 'WARPSZ_M': 32, 'WARPSZ_N': 32, 'READ_A_DIM': 64, 'READ_B_DIM': 64, 'TYPE': 'float'}),
+]
 kernel_rocblas = KernelHandler(
     source_file='src/rocblas_gemm.cpp',
-    compile_configs=[
-        KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 16, 'WARPSZ_M': 32, 'WARPSZ_N': 8, 'READ_A_DIM': 16, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-        KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 16, 'WARPSZ_M': 64, 'WARPSZ_N': 8, 'READ_A_DIM': 16, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-        KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 32, 'WARPSZ_M': 64, 'WARPSZ_N': 8, 'READ_A_DIM': 32, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-        KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 32, 'WARPSZ_M': 32, 'WARPSZ_N': 16, 'READ_A_DIM': 32, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-        KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 32, 'WARPSZ_M': 16, 'WARPSZ_N': 16, 'READ_A_DIM': 32, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-        KernelConfig({'BLOCKSIZE_M': 128, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 16, 'WARPSZ_M': 32, 'WARPSZ_N': 16, 'READ_A_DIM': 16, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-        KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 128, 'BLOCKSIZE_K': 16, 'WARPSZ_M': 16, 'WARPSZ_N': 32, 'READ_A_DIM': 16, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-        KernelConfig({'BLOCKSIZE_M': 128, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 32, 'WARPSZ_M': 32, 'WARPSZ_N': 16, 'READ_A_DIM': 32, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-        KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 128, 'BLOCKSIZE_K': 32, 'WARPSZ_M': 16, 'WARPSZ_N': 32, 'READ_A_DIM': 32, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-        KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 64, 'WARPSZ_M': 32, 'WARPSZ_N': 32, 'READ_A_DIM': 64, 'READ_B_DIM': 64, 'TYPE': 'float'}),
-    ],
+    compile_configs=rocgemm_configs,
     keys=['m', 'n', 'k', 'version'],
-    platform='nvidia',
+    platform=PLATFORM,
     disable_benchmark=False
 )
 
@@ -32,8 +33,12 @@ def rocgemm(a: torch.Tensor, b: torch.Tensor, version: int = 1) -> torch.Tensor:
     return c
 
 def gen_configs():
+    if PLATFORM == 'nvidia':
+        warp_config = [(4, 8, 1), (2, 16, 1), (16, 2, 1), (8, 4, 1)]
+    else:
+        warp_config = [(8, 8, 1), (4, 16, 1), (16, 4, 1)]
     for (bwm, bwn) in [(1, 1), (2, 2), (1, 2), (2, 1), (2, 4), (4, 2)]:
-        for (wm, wn, wk) in [(4, 8, 1), (2, 16, 1), (16, 2, 1), (8, 4, 1)]:
+        for (wm, wn, wk) in warp_config:
             for (tm, tn, tk) in [(4, 4, 2), (4, 4, 1), (2, 2, 2), (2, 2, 1)]:
                 for block_k in [16, 32, 64]:
                     block_m = bwm * wm * tm
@@ -81,14 +86,13 @@ hand_picked_configs = [
     KernelConfig({'BlockM': 16, 'BlockK': 32, 'BlockN': 64, 'TM': 4, 'TN': 4,  'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 1, 'WarpN': 2, 'TYPE': 'float'}),
     KernelConfig({'BlockM': 64, 'BlockK': 32, 'BlockN': 64, 'TM': 4, 'TN': 4,  'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 4, 'WarpN': 2, 'TYPE': 'float'}),
     KernelConfig({'BlockM': 32, 'BlockK': 32, 'BlockN': 128, 'TM': 4, 'TN': 4, 'TK': 2, 'ThreadM': 4, 'ThreadK': 1, 'ThreadN': 8, 'WarpM': 2, 'WarpN': 4, 'TYPE': 'float'}),
-
 ]
 
 kernel_simt = KernelHandler(
-    source_file='src/simt_gemm.cu',
-    compile_configs=hand_picked_configs,
+    source_file='src/simt_gemm.cu' if PLATFORM == 'nvidia' else 'src/simt_gemm.cpp',
+    compile_configs=list(gen_configs()),
     keys=['m', 'k', 'n'],
-    platform='nvidia',
+    platform=PLATFORM,
     disable_benchmark=False,
     ignore_compile_errors=True,
     parallel_compile=True

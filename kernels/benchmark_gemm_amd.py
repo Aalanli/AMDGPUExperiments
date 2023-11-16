@@ -1,10 +1,11 @@
 # %%
 import torch
-from kernels import KernelHandler, KernelConfig
+from kernels.gemm import rocgemm
 from kernels.gemm_hidet import hidet_simt
 from kernels.composable_kernel_gemm import ck_gemm, ck_gemm_dl
 from kernels.gemm_mfmav1 import mfma_gemmv1
 from kernels.utils import Bench
+from triton.ops.matmul import matmul
 
 if __name__ == '__main__':    
     def bench_simt_hidet(i, **kwargs):
@@ -49,6 +50,18 @@ if __name__ == '__main__':
         b = torch.randn([k, n], device='cuda')
         return lambda: mfma_gemmv1(a, b)
     
+    def bench_triton(i, **kwargs):
+        m, k, n = i
+        a = torch.randn([m, k], device='cuda')
+        b = torch.randn([k, n], device='cuda')
+        return lambda: matmul(a, b)
+    
+    def bench_rocgemm(i, **kwargs):
+        m, k, n = i
+        a = torch.randn([m, k], device='cuda')
+        b = torch.randn([k, n], device='cuda')
+        return lambda: rocgemm(a, b)
+    
     square = [(m, m, m) for m in range(256, 2049, 256)]
     mem_bound = [(1, m, m) for m in [32, 64, 128, 256, 512, 768, 1024]]
     bench = Bench(
@@ -64,6 +77,8 @@ if __name__ == '__main__':
     bench.bench(bench_ck, "composable_kernel_mfma")
     bench.bench(bench_ck_dl, "composable_kernel_simt")
     bench.bench(bench_mfma_v1, "mfma_v1")
+    # bench.bench(bench_rocgemm, "gemm naive")
+    # bench.bench(bench_triton, "triton")
     data = bench.run()
     data.show_plot()
     data.print_data()
