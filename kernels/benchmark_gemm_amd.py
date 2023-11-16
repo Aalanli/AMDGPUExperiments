@@ -7,60 +7,14 @@ from kernels.gemm_mfmav1 import mfma_gemmv1
 from kernels.utils import Bench
 from triton.ops.matmul import matmul
 
-if __name__ == '__main__':    
-    def bench_simt_hidet(i, **kwargs):
-        m, k, n = i
-        a = torch.randn([m, k], device='cuda')
-        b = torch.randn([k, n], device='cuda')
-        return lambda: hidet_simt(a, b)
-    
-    def bench_simt_hidetv2(i, **kwargs):
-        m, k, n = i
-        a = torch.randn([m, k], device='cuda')
-        b = torch.randn([k, n], device='cuda')
-        return lambda: hidet_simt(a, b, version=1)
-    
-    def bench_simt_hidetv3(i, **kwargs):
-        m, k, n = i
-        a = torch.randn([m, k], device='cuda')
-        b = torch.randn([k, n], device='cuda')
-        return lambda: hidet_simt(a, b, version=2)
-    
-    def bench_blas(i, **kwargs):
-        m, k, n = i
-        a = torch.randn([m, k], device='cuda')
-        b = torch.randn([k, n], device='cuda')
-        return lambda: a @ b
-    
-    def bench_ck(i, **kwargs):
-        m, k, n = i
-        a = torch.randn([m, k], device='cuda')
-        b = torch.randn([k, n], device='cuda')
-        return lambda: ck_gemm(a, b)
-    
-    def bench_ck_dl(i, **kwargs):
-        m, k, n = i
-        a = torch.randn([m, k], device='cuda')
-        b = torch.randn([k, n], device='cuda')
-        return lambda: ck_gemm_dl(a, b)
-    
-    def bench_mfma_v1(i, **kwargs):
-        m, k, n = i
-        a = torch.randn([m, k], device='cuda')
-        b = torch.randn([k, n], device='cuda')
-        return lambda: mfma_gemmv1(a, b)
-    
-    def bench_triton(i, **kwargs):
-        m, k, n = i
-        a = torch.randn([m, k], device='cuda')
-        b = torch.randn([k, n], device='cuda')
-        return lambda: matmul(a, b)
-    
-    def bench_rocgemm(i, **kwargs):
-        m, k, n = i
-        a = torch.randn([m, k], device='cuda')
-        b = torch.randn([k, n], device='cuda')
-        return lambda: rocgemm(a, b)
+if __name__ == '__main__':
+    def benchmark_func(f):
+        def bench_fn(i, **kwargs):
+            m, k, n = i
+            a = torch.randn([m, k], device='cuda')
+            b = torch.randn([k, n], device='cuda')
+            return lambda: f(a, b)
+        return bench_fn
     
     square = [(m, m, m) for m in range(256, 2049, 256)]
     mem_bound = [(1, m, m) for m in [32, 64, 128, 256, 512, 768, 1024]]
@@ -70,15 +24,17 @@ if __name__ == '__main__':
     )
     # bench.bench(bench_rocgemm1)
     # bench.bench(bench_rocgemm2, 'naive')
-    bench.bench(bench_blas, 'blas')
-    bench.bench(bench_simt_hidet,   'simt')
-    bench.bench(bench_simt_hidetv2, 'simtv2')
-    bench.bench(bench_simt_hidetv3, 'simtv3')
-    bench.bench(bench_ck, "composable_kernel_mfma")
-    bench.bench(bench_ck_dl, "composable_kernel_simt")
-    bench.bench(bench_mfma_v1, "mfma_v1")
-    # bench.bench(bench_rocgemm, "gemm naive")
-    # bench.bench(bench_triton, "triton")
+    bench.bench(benchmark_func(lambda a, b: a @ b), 'blas')
+    bench.bench(benchmark_func(hidet_simt),   'simt')
+    bench.bench(benchmark_func(lambda a, b: hidet_simt(a, b, version=1)), 'simtv2')
+    bench.bench(benchmark_func(lambda a, b: hidet_simt(a, b, version=2)), 'simtv3')
+    bench.bench(benchmark_func(ck_gemm), "composable_kernel_mfma")
+    bench.bench(benchmark_func(ck_gemm_dl), "composable_kernel_simt")
+    bench.bench(benchmark_func(mfma_gemmv1), "mfma_v1")
+    bench.bench(benchmark_func(lambda a, b: mfma_gemmv1(a, b, version=1)), "mfma_v2")
+    
+    # bench.bench(benchmark_func(rocgemm), "gemm naive")
+    # bench.bench(benchmark_func(matmul), "triton")
     data = bench.run()
     data.show_plot()
     data.print_data()
