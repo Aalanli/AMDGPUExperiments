@@ -20,6 +20,7 @@
 #define Warp_N 2
 #endif
 
+constexpr int warp_size = 64; // since this is only on amd platform anyways
 
 __global__ void mfma_f32_16x16x4f32_gemm_kernel(
     const float * __restrict__ A,
@@ -44,7 +45,7 @@ __global__ void mfma_f32_16x16x4f32_gemm_kernel(
     auto mma = [&]() {
         for (int i = 0; i < rep_m; ++i) {
             for (int j = 0; j < rep_n; ++j) {
-                regs_c[i][j] += __builtin_amdgcn_mfma_f32_16x16x4f32(
+                regs_c[i][j] = __builtin_amdgcn_mfma_f32_16x16x4f32(
                     regs_a[i], regs_b[j], regs_c[i][j], 0, 0, 0);
             }
         }
@@ -123,24 +124,71 @@ __global__ void mfma_f32_16x16x4f32_gemm_kernel(
 
     for (int im = 0; im < rep_m; im++) {
         for (int in = 0; in < rep_n; in++) {
-            for (int k = 0; k < 4; ++k) {
-                regs_c[im][in][k] = 0.0f;
-            }
+            regs_c[im][in] = {0.0f, 0.0f, 0.0f, 0.0f};
         }
     }
 
     for (int k = 0; k < cdiv(K, BLOCK_K); ++k) {
         load_a_g2s(k * BLOCK_K);
         load_b_g2s(k * BLOCK_K);
+        if (blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0) {
+            for (int i = 0; i < BLOCK_M; ++i) {
+                for (int j = 0; j < BLOCK_K; ++j) {
+                    printf("%f ", sA[i][j]);
+                }
+                printf("\n");
+            }
+        }
         __syncthreads();
 
         for (int i = 0; i < BLOCK_K / mma_k; ++i) {
             load_a_s2r(i);
             load_b_s2r(i);
             mma();
+            // if (blockIdx.x == 0 && blockIdx.y == 0 && threadIdx.x == 0) {
+            //     assert(regs_a[0] == 1.0f);
+            //     for (int im = 0; im < rep_m; im++) {
+            //         for (int in = 0; in < rep_n; in++) {
+            //             for (int k = 0; k < 4; ++k) {
+            //                 printf("%f ", regs_c[im][in][k]);
+            //             }
+            //         }
+            //     }
+            //     printf("\n");
+            // }
         }
         __syncthreads();
     }
 
     store_c_r2g();
+}
+
+#ifndef LAUNCH_NAME
+#define LAUNCH_NAME mfma_f32_16x16x4f32_gemm
+#endif
+
+EXPORT bool LAUNCH_NAME(float* a, float* b, float* c, int m, int k, int n) {
+    dim3 grid(cdiv(m, BLOCK_M), cdiv(n, BLOCK_N));
+    dim3 block(Warp_M * Warp_N * warp_size);
+
+    int used_smem = BLOCK_M * BLOCK_K * sizeof(float) + BLOCK_K * BLOCK_N * sizeof(float);
+
+    hipDeviceProp_t prop;
+    HIP_ASSERT(hipGetDeviceProperties(&prop, 0));
+    int smem = prop.sharedMemPerBlock;
+
+    if (used_smem > smem) {
+        printf("smem overflow: %d > %d\n", used_smem, smem);
+        return false;
+    }
+
+    hipLaunchKernelGGL(mfma_f32_16x16x4f32_gemm_kernel, grid, block, 0, 0, a, b, c, m, k, n);
+
+    auto error = hipGetLastError();
+    if (error != hipSuccess) {
+        printf("Error: %s\n", hipGetErrorString(error));
+        return false;
+    }
+
+    return true;
 }

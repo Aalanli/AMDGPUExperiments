@@ -15,8 +15,8 @@ find_package(hip REQUIRED)
 find_package(rocblas REQUIRED)
 find_package(composable_kernel COMPONENTS device_operations)
 
-# set(AMDGPU_TARGETS "gfx90a")
 
+# set(GPU_TARGETS "gfx90a")
 # Find OpenMP.
 # find_package(OpenMP REQUIRED)
 
@@ -45,6 +45,16 @@ target_compile_options(ck_gemm PRIVATE ${OpenMP_CXX_FLAGS})
 target_link_libraries(ck_gemm PRIVATE hip::device composable_kernel::device_operations ${OpenMP_CXX_FLAGS})
 
 
+add_library(
+    ck_gemm_dl SHARED
+    ${CMAKE_SOURCE_DIR}/src/ck_kernel_f32_dl_client.cpp    
+)
+
+target_include_directories(ck_gemm_dl PRIVATE include)
+target_compile_options(ck_gemm_dl PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(ck_gemm_dl PRIVATE hip::device composable_kernel::device_operations ${OpenMP_CXX_FLAGS})
+
+
 # Preparing the executable.
 add_executable(helloworld
     ${CMAKE_SOURCE_DIR}/src/helloworld.cpp
@@ -55,7 +65,7 @@ add_executable(helloworld
     ${CMAKE_SOURCE_DIR}/src/ds_perm.cpp
     ${CMAKE_SOURCE_DIR}/src/pipeline_test.cpp
     ${CMAKE_SOURCE_DIR}/src/simt_gemm_hidet.cpp 
-    # ${CMAKE_SOURCE_DIR}/src/mfma_gemm.cpp
+    ${CMAKE_SOURCE_DIR}/src/mfma_gemm.cpp
     # ${CMAKE_SOURCE_DIR}/src/test_void_call.cpp
 )
 # Link Libraries - HIP Device and OpenMP.
