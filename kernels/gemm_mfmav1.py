@@ -27,20 +27,20 @@ configs = [
 kernel = KernelHandler(
     source_file='src/mfma_gemm.cpp', 
     compile_configs=list(generate_configs()),
-    keys=['m', 'k', 'n'],
+    keys=['m', 'k', 'n', 'version'],
     platform='amd',
     disable_benchmark=False,
     ignore_compile_errors=True,
     parallel_compile=True
 )
 
-def mfma_gemmv1(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def mfma_gemmv1(a: torch.Tensor, b: torch.Tensor, version: int = 0) -> torch.Tensor:
     assert a.shape[1] == b.shape[0]
     assert len(a.shape) == len(b.shape) == 2
     m, k = a.shape
     n = b.shape[1]
     c = torch.empty((m, n), device=a.device, dtype=a.dtype)
-    kernel(a, b, c, m=m, k=k, n=n)
+    kernel(a, b, c, m=m, k=k, n=n, version=version)
     return c
 
 
@@ -52,7 +52,7 @@ if __name__ == '__main__':
     b = torch.randn([512, 512], device='cuda')
     # b = torch.eye(64, device='cuda')
     c1 = a @ b
-    c = mfma_gemmv1(a, b)
+    c = mfma_gemmv1(a, b, 1)
     err = (c1 - c).abs()
     print(c)
     print(err)

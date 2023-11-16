@@ -18,10 +18,11 @@ def gen_configs():
                         block_k = bk
                         smem = (block_m * block_k + block_k * block_n) * 4 * 2
                         regs = (wom * tm + won * tn) * 2 + wom * won * tm * tn * 2
-                        if regs > 255:
-                            continue
-                        if smem > 0xc000:
-                            continue
+                        if PLATFORM == 'nvidia':
+                            if regs > 255:
+                                continue
+                            if smem > 0xc000:
+                                continue
                         nthreads = wm * wn * bwm * bwn
                         if block_n % (nthreads // block_k) != 0:
                             continue
