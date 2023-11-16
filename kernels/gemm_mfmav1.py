@@ -39,7 +39,7 @@ def mfma_gemmv1(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
     assert len(a.shape) == len(b.shape) == 2
     m, k = a.shape
     n = b.shape[1]
-    c = torch.zeros((m, n), device=a.device, dtype=a.dtype) - 1
+    c = torch.empty((m, n), device=a.device, dtype=a.dtype)
     kernel(a, b, c, m=m, k=k, n=n)
     return c
 
