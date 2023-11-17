@@ -30,10 +30,27 @@ add_executable(ck_test
     ${CMAKE_SOURCE_DIR}/src/composable_kernel.cpp
 )
 
-# Link Libraries - HIP Device and OpenMP.
 target_include_directories(ck_test PRIVATE include)
 target_compile_options(ck_test PRIVATE ${OpenMP_CXX_FLAGS})
 target_link_libraries(ck_test PRIVATE hip::device composable_kernel::device_operations ${OpenMP_CXX_FLAGS})
+
+
+add_executable(wmma_test
+    ${CMAKE_SOURCE_DIR}/src/rocwmma_example.cpp
+)
+
+target_compile_options(wmma_test PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(wmma_test PRIVATE hip::device ${OpenMP_CXX_FLAGS})
+
+
+add_library(wmma_gemm
+    ${CMAKE_SOURCE_DIR}/src/rocwmma_gemm.cpp
+)
+
+target_include_directories(wmma_gemm PRIVATE include)
+target_compile_options(wmma_gemm PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(wmma_gemm PRIVATE hip::device ${OpenMP_CXX_FLAGS})
+
 
 add_library(
     ck_gemm SHARED

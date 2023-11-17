@@ -45,7 +45,6 @@ def mfma_gemmv1(a: torch.Tensor, b: torch.Tensor, version: int = 0) -> torch.Ten
 
 
 if __name__ == '__main__':
-    d = 64
     a = torch.arange(0, 64, device='cuda')[None, :] + torch.arange(0, 64, device='cuda')[:, None] * 64
     a = a.float()
     a = torch.randn([512, 512], device='cuda')

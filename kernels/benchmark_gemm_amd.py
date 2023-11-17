@@ -4,6 +4,7 @@ from kernels.gemm import rocgemm
 from kernels.gemm_hidet import hidet_simt
 from kernels.composable_kernel_gemm import ck_gemm, ck_gemm_dl
 from kernels.gemm_mfmav1 import mfma_gemmv1
+from kernels.rocwmma_gemm import wmma_gemm
 from kernels.utils import Bench
 from triton.ops.matmul import matmul
 
@@ -32,6 +33,7 @@ if __name__ == '__main__':
     bench.bench(benchmark_func(ck_gemm_dl), "composable_kernel_simt")
     bench.bench(benchmark_func(mfma_gemmv1), "mfma_v1")
     bench.bench(benchmark_func(lambda a, b: mfma_gemmv1(a, b, version=1)), "mfma_v2")
+    bench.bench(benchmark_func(wmma_gemm), "wmma_v1")
     
     # bench.bench(benchmark_func(rocgemm), "gemm naive")
     # bench.bench(benchmark_func(matmul), "triton")
