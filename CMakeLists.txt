@@ -1,4 +1,5 @@
 project(GPUExperiments)
+add_compile_options(-std=c++17 -save-temps)
 
 cmake_minimum_required(VERSION 3.16)
 
@@ -12,8 +13,10 @@ list(APPEND CMAKE_PREFIX_PATH /opt/rocm/hip /opt/rocm /opt/rocm/rocblas)
 # ex. set(AMDGPU_TARGETS "gfx803;gfx900;gfx906")
 find_package(hip REQUIRED)
 find_package(rocblas REQUIRED)
-set(AMDGPU_TARGETS "gfx803;gfx900;gfx906")
+find_package(composable_kernel COMPONENTS device_operations)
 
+
+# set(GPU_TARGETS "gfx90a")
 # Find OpenMP.
 # find_package(OpenMP REQUIRED)
 
@@ -22,6 +25,51 @@ set(CMAKE_CXX_COMPILER ${HIP_HIPCC_EXECUTABLE})
 set(CMAKE_CXX_LINKER   ${HIP_HIPCC_EXECUTABLE})
 
 set(CMAKE_BUILD_TYPE Release)
+
+add_executable(ck_test
+    ${CMAKE_SOURCE_DIR}/src/composable_kernel.cpp
+)
+
+target_include_directories(ck_test PRIVATE include)
+target_compile_options(ck_test PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(ck_test PRIVATE hip::device composable_kernel::device_operations ${OpenMP_CXX_FLAGS})
+
+
+add_executable(wmma_test
+    ${CMAKE_SOURCE_DIR}/src/rocwmma_example.cpp
+)
+
+target_compile_options(wmma_test PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(wmma_test PRIVATE hip::device ${OpenMP_CXX_FLAGS})
+
+
+add_library(wmma_gemm
+    ${CMAKE_SOURCE_DIR}/src/rocwmma_gemm.cpp
+)
+
+target_include_directories(wmma_gemm PRIVATE include)
+target_compile_options(wmma_gemm PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(wmma_gemm PRIVATE hip::device ${OpenMP_CXX_FLAGS})
+
+
+add_library(
+    ck_gemm SHARED
+    ${CMAKE_SOURCE_DIR}/src/composable_kernel_client.cpp    
+)
+
+target_include_directories(ck_gemm PRIVATE include)
+target_compile_options(ck_gemm PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(ck_gemm PRIVATE hip::device composable_kernel::device_operations ${OpenMP_CXX_FLAGS})
+
+
+add_library(
+    ck_gemm_dl SHARED
+    ${CMAKE_SOURCE_DIR}/src/ck_kernel_f32_dl_client.cpp    
+)
+
+target_include_directories(ck_gemm_dl PRIVATE include)
+target_compile_options(ck_gemm_dl PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(ck_gemm_dl PRIVATE hip::device composable_kernel::device_operations ${OpenMP_CXX_FLAGS})
 
 
 # Preparing the executable.

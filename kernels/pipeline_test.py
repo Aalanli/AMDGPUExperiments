@@ -35,18 +35,39 @@ def run_experiment(param: PipelineParam, grid_dim=1, repeats=16, additional_smem
     b = torch.empty([grid_dim * param.block_dim], device='cuda', dtype=torch.float32)
     kernels[param](a, b, grid_dim, repeats, additional_smem)
 
+run_experiment(PipelineParam())
 
+# %%
 # sanity check, increase arithmetic intensity
-def sanity_check_r16(i, **kwargs):
-    param = PipelineParam(reg_iter=i)
-    run_experiment(param, grid_dim=4, repeats=16, additional_smem=0)
-def sanity_check_r32(i, **kwargs):
-    param = PipelineParam(reg_iter=i)
-    run_experiment(param, grid_dim=4, repeats=32, additional_smem=0)
+def sanity_check(reg_iter, repeats):
+    param = PipelineParam(reg_iter=reg_iter)
+    return lambda: run_experiment(param, grid_dim=4, repeats=repeats, additional_smem=0)
 
 bench = Bench(x_vals=[1, 2, 4, 8, 16, 32, 64], x_name='fma per register')
-bench.bench(sanity_check_r16)
-bench.bench(sanity_check_r32)
+# for rep in [16, 32]:
+#     bench.bench(lambda i, **kwargs: sanity_check(i, rep, **kwargs), name=f'rep{rep}')
+bench.bench(lambda i, **kwargs: sanity_check(i, 16, **kwargs), name=f'rep16')
+bench.bench(lambda i, **kwargs: sanity_check(i, 32, **kwargs), name=f'rep32')
+bench.bench(lambda i, **kwargs: sanity_check(i, 64, **kwargs), name=f'rep64')
+
 data = bench.run()
 data.show_plot()
+
+
+# %%
+# hypothesis: increasing smem pipe should have larger impact on performance
+# when arithmetic intensity is higher
+bench = Bench(x_vals=[1, 2, 4, 8, 16, 32, 64], x_name='fma per register', repeats=64, grid_dim=4)
+# for smem_pipe in [1, 2, 3, 4]:
+    # bench.bench(lambda i, **kwargs: lambda: run_experiment(PipelineParam(smem_pipe=smem_pipe, reg_iter=i), **kwargs), name=f'smem_pipe{smem_pipe}')
+bench.bench(lambda i, **kwargs: lambda: run_experiment(PipelineParam(smem_pipe=1, reg_iter=i), **kwargs), name=f'smem_pipe{1}')
+bench.bench(lambda i, **kwargs: lambda: run_experiment(PipelineParam(smem_pipe=2, reg_iter=i), **kwargs), name=f'smem_pipe{2}')
+bench.bench(lambda i, **kwargs: lambda: run_experiment(PipelineParam(smem_pipe=3, reg_iter=i), **kwargs), name=f'smem_pipe{3}')
+bench.bench(lambda i, **kwargs: lambda: run_experiment(PipelineParam(smem_pipe=4, reg_iter=i), **kwargs), name=f'smem_pipe{4}')
+
+data = bench.run()
+data.show_plot()
+
+
+# %%
 

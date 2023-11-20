@@ -22,6 +22,7 @@ def build(ignore_error, source, out_path, amd=True, **kwargs):
     std_err = subprocess.DEVNULL if ignore_error else None
     if amd:
         assert file_ext == '.cpp', f'AMD kernel must be a cpp file, got {file_ext}'
+        args.append('--offload-arch=gfx90a')
         subprocess.run(['hipcc', '-shared', source] + args + ['-o', out_path, '-I', 'include/'], check=True, shell=False, stderr=std_err)
         # subprocess.run(['hipcc', '-shared', '-o', out_path, out_path + '_'], check=True, shell=False)
         return
