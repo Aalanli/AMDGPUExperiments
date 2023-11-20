@@ -55,7 +55,6 @@
 #define TN 4
 #endif
 
-
 __device__ __host__ constexpr int load_factor(const int nthreads, const int min_contiguous, const int dim) {
     int max_load_factor = dim / min_contiguous;
     while (max_load_factor > 1) {
