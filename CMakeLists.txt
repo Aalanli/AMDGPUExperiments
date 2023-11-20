@@ -15,7 +15,6 @@ find_package(hip REQUIRED)
 find_package(rocblas REQUIRED)
 find_package(composable_kernel COMPONENTS device_operations)
 
-
 # set(GPU_TARGETS "gfx90a")
 # Find OpenMP.
 # find_package(OpenMP REQUIRED)
@@ -25,6 +24,20 @@ set(CMAKE_CXX_COMPILER ${HIP_HIPCC_EXECUTABLE})
 set(CMAKE_CXX_LINKER   ${HIP_HIPCC_EXECUTABLE})
 
 set(CMAKE_BUILD_TYPE Release)
+
+function(make_lib, FNAME, SAVETEMPS)
+    add_library(
+        ${FNAME} SHARED
+        ${CMAKE_SOURCE_DIR}/src/${FNAME}.cpp
+    )
+    target_include_directories(${FNAME} PRIVATE include)
+    if(${SAVETEMPS})
+        add_compile_options(${FNAME} PRIVATE ${OpenMP_CXX_FLAGS} -save-temps)
+    else()
+        target_compile_options(${FNAME} PRIVATE ${OpenMP_CXX_FLAGS})
+    endif()
+    target_link_libraries(${FNAME} PRIVATE hip::device ${OpenMP_CXX_FLAGS})
+endfunction()
 
 add_executable(ck_test
     ${CMAKE_SOURCE_DIR}/src/composable_kernel.cpp
@@ -43,13 +56,14 @@ target_compile_options(wmma_test PRIVATE ${OpenMP_CXX_FLAGS})
 target_link_libraries(wmma_test PRIVATE hip::device ${OpenMP_CXX_FLAGS})
 
 
-add_library(wmma_gemm
-    ${CMAKE_SOURCE_DIR}/src/rocwmma_gemm.cpp
-)
+make_lib(rocwmma_gemm, 0)
+# add_library(wmma_gemm
+#     ${CMAKE_SOURCE_DIR}/src/rocwmma_gemm.cpp
+# )
 
-target_include_directories(wmma_gemm PRIVATE include)
-target_compile_options(wmma_gemm PRIVATE ${OpenMP_CXX_FLAGS})
-target_link_libraries(wmma_gemm PRIVATE hip::device ${OpenMP_CXX_FLAGS})
+# target_include_directories(wmma_gemm PRIVATE include)
+# target_compile_options(wmma_gemm PRIVATE ${OpenMP_CXX_FLAGS})
+# target_link_libraries(wmma_gemm PRIVATE hip::device ${OpenMP_CXX_FLAGS})
 
 
 add_library(
@@ -107,6 +121,15 @@ add_executable(copy
 target_include_directories(copy PRIVATE include)
 target_compile_options(copy PRIVATE ${OpenMP_CXX_FLAGS})
 target_link_libraries(copy PRIVATE hip::device ${OpenMP_CXX_FLAGS})
+
+
+add_library(mfma_test
+    ${CMAKE_SOURCE_DIR}/src/mfma_gemmv2.cpp
+)
+
+target_include_directories(mfma_test PRIVATE include)
+target_compile_options(mfma_test PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(mfma_test PRIVATE hip::device ${OpenMP_CXX_FLAGS})
 
 
 # add_library(hello SHARED

@@ -1,4 +1,5 @@
 #include "hip_utils.hpp"
+#include <hip/amd_detail/amd_hip_runtime.h>
 
 #ifndef Warp_M
 #define Warp_M 1
@@ -32,38 +33,6 @@ constexpr int block_n = mma_n * rep_n * Warp_N;
 constexpr int block_k = mma_k * rep_k;
 constexpr int nthreads = Warp_M * Warp_N * warp_size;
 
-struct SmemLayout {
-    static constexpr int NDims = 0;
-    constexpr int used_smem();
-    constexpr int smem_alignment();
-    template <int D>
-    constexpr int size();
-};
-
-
-template <int H, int... T>
-struct S {
-    static constexpr int head = H;
-    S<T...> tail;
-};
-
-
-template <int H, int... T>
-struct Len {
-    enum { value = 1 + Len<T...>::value };
-};
-
-template <int T>
-struct Len<T> {
-    enum { value = 1 };
-};
-
-
-template <int... Dims>
-struct SmemRowLayout {
-    static constexpr int NDims = Len<Dims...>::value;
-
-};
 
 __global__ void mfma_f32_16x16x4f32_gemm_kernel(
     const float * __restrict__ A,
