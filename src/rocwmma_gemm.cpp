@@ -33,6 +33,14 @@
 #define WARP_N 1
 #endif
 
+#ifndef NSTAGES
+#define NSTAGES 1
+#endif
+
+#ifndef UNROLL_LASTK
+#define UNROLL_LASTK 1
+#endif
+
 constexpr int warp_size = rocwmma::Constants::AMDGCN_WAVE_SIZE;
 constexpr int nthreads = WARP_M * WARP_N * 64;
 constexpr int block_m = MMA_M * REP_M * WARP_M;
@@ -48,8 +56,8 @@ __global__ __launch_bounds__(nthreads) void gemm_wmma_f32_kernel(
     using FragA = rocwmma::fragment<rocwmma::matrix_a, MMA_M, MMA_N, MMA_K, float, rocwmma::row_major>;
     using FragB = rocwmma::fragment<rocwmma::matrix_b, MMA_M, MMA_N, MMA_K, float, rocwmma::row_major>;
     using FragAcc = rocwmma::fragment<rocwmma::accumulator, MMA_M, MMA_N, MMA_K, float>;
-    FragA atile[REP_M];
-    FragB btile[REP_N];
+    FragA atile[NSTAGES][REP_M];
+    FragB btile[NSTAGES][REP_N];
     FragAcc ctile[REP_M][REP_N];
 
     const int warp_id = threadIdx.x / warp_size;
@@ -64,23 +72,55 @@ __global__ __launch_bounds__(nthreads) void gemm_wmma_f32_kernel(
         }
     }
 
-    for (int kb = 0; kb < (k + block_k - 1) / block_k; ++kb) {
+    auto load_atile = [&](int kb, int index) {
         #pragma unroll
         for (int mt = 0; mt < REP_M; mt++) {
-            rocwmma::load_matrix_sync(atile[mt], 
+            rocwmma::load_matrix_sync(atile[index][mt], 
                 a + (offset_m + mt * MMA_M) * k + kb * block_k, k);
         }
+    };
+
+    auto load_btile = [&](int kb, int index) {
         #pragma unroll
         for (int nt = 0; nt < REP_N; nt++) {
-            rocwmma::load_matrix_sync(btile[nt],
+            rocwmma::load_matrix_sync(btile[index][nt],
                 b + (kb * block_k) * n + (nt * MMA_N + offset_n), n);
         }
-
+    };
+    
+    auto mma = [&](int idx) {
         for (int i = 0; i < REP_M; ++i) {
             for (int j = 0; j < REP_N; ++j) {
-                rocwmma::mma_sync(ctile[i][j], atile[i], btile[j], ctile[i][j]);
+                rocwmma::mma_sync(ctile[i][j], atile[idx][i], btile[idx][j], ctile[i][j]);
             }
         }
+    };
+    static_assert(NSTAGES == 1 || NSTAGES == 2, "");
+    if constexpr(NSTAGES == 2) {
+        load_atile(0, 0);
+        load_btile(0, 0);
+    }
+    int ntile_k = (k + block_k - 1) / block_k;
+    if constexpr(UNROLL_LASTK) {
+        ntile_k -= 1;
+    }
+    for (int kb = 0; kb < ntile_k; ++kb) {
+        if (!UNROLL_LASTK && NSTAGES == 2) {
+            if (kb < ntile_k - 1) {
+                load_atile((kb + NSTAGES - 1), (kb + NSTAGES - 1) % NSTAGES);
+                load_btile((kb + NSTAGES - 1), (kb + NSTAGES - 1) % NSTAGES);
+            }
+        } else {
+            load_atile((kb + NSTAGES - 1), (kb + NSTAGES - 1) % NSTAGES);
+            load_btile((kb + NSTAGES - 1), (kb + NSTAGES - 1) % NSTAGES);
+        }
+        mma(kb % NSTAGES);        
+    }
+    if constexpr(UNROLL_LASTK) {
+        int kb = ntile_k;
+        load_atile((kb + NSTAGES - 1), (kb + NSTAGES - 1) % NSTAGES);
+        load_btile((kb + NSTAGES - 1), (kb + NSTAGES - 1) % NSTAGES);
+        mma(kb % NSTAGES);
     }
 
     for (int i = 0; i < REP_M; ++i) {

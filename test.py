@@ -1,5 +1,24 @@
 # %%
 import torch
+from kernels.rocwmma_gemm import wmma_gemm
+
+if __name__ == '__main__':
+    a = torch.arange(0, 64, device='cuda')[None, :] + torch.arange(0, 64, device='cuda')[:, None] * 64
+    a = a.float()
+    a = torch.randn([512, 512], device='cuda')
+    b = torch.randn([512, 512], device='cuda')
+    # b = torch.eye(64, device='cuda')
+    c1 = a @ b
+    c = wmma_gemm(a, b)
+    err = (c1 - c).abs()
+    print(c)
+    print(err)
+    print(err.max())
+
+
+exit()
+# %%
+import torch
 print(torch.cuda.is_available())
 
 a = torch.randn([512, 512], device='cuda')
