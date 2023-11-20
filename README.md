@@ -312,6 +312,10 @@ srsrc[95:64] = element_space_size or 0xffffffff
 srsrc[127:96] = 0x00020000 
 See isa manual page 66, table 36 "buffer resource descriptor" for more details.
 
+[Mi200 ISA](https://www.amd.com/content/dam/amd/en/documents/instinct-tech-docs/instruction-set-architectures/instinct-mi200-cdna2-instruction-set-architecture.pdf)
+Page 74:
+> The MUBUF instruction format allows reading data from a memory buffer directly into LDS
+without passing through VGPRs
 
 ## MISC
 **Torch HIP Semantics**
