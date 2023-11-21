@@ -5,16 +5,16 @@
 
 // 16, 32
 #ifndef MMA_M
-#define MMA_M 16
+#define MMA_M 32
 #endif
 // 16, 32
 #ifndef MMA_N
-#define MMA_N 16
+#define MMA_N 32
 #endif
 
 // 4, 8, 16, 32, 64, 128
 #ifndef MMA_K
-#define MMA_K 8
+#define MMA_K 64
 #endif
 
 #ifndef REP_M
@@ -22,7 +22,7 @@
 #endif
 
 #ifndef REP_N
-#define REP_N 1
+#define REP_N 2
 #endif
 
 #ifndef WARP_M
@@ -54,6 +54,16 @@ __global__ __launch_bounds__(nthreads) void gemm_wmma_f32_kernel(
     int m, int k, int n
 ) {
     using FragA = rocwmma::fragment<rocwmma::matrix_a, MMA_M, MMA_N, MMA_K, float, rocwmma::row_major>;
+    using IOS = FragA::IOConfig::IOShape;
+    IOS::BlockDim; // 32
+    IOS::KDim;     // 64
+    IOS::VectorWidth;  // 4
+    IOS::MaxVectorWidth; // 4
+    using Layout = IOS::MatrixLayout;
+    Layout::ColOrthoVW::Traits::LargeDim; // 0
+    Layout::ColOrthoVW::Traits::MaxKPerIO; // 8
+
+
     using FragB = rocwmma::fragment<rocwmma::matrix_b, MMA_M, MMA_N, MMA_K, float, rocwmma::row_major>;
     using FragAcc = rocwmma::fragment<rocwmma::accumulator, MMA_M, MMA_N, MMA_K, float>;
     FragA atile[NSTAGES][REP_M];

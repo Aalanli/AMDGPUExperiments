@@ -1,2 +1,2 @@
 workload_name,command,host_name,host_cpu,host_distro,host_kernel,host_rocmver,date,gpu_soc,numSE,numCU,numSIMD,waveSize,maxWavesPerCU,maxWorkgroupSize,L1,L2,sclk,mclk,cur_sclk,cur_mclk,L2Banks,LDSBanks,name,numSQC,hbmBW,ip_blocks
-gemm,"./omniperf_launch.sh",f90090f392de,AMD EPYC 7763 64-Core Processor,Ubuntu 20.04.6 LTS,5.15.0-58-generic,5.6.0-67,Fri Nov 17 16:39:39 2023 (EST),gfx90a,8,104,4,64,32,1024,16,8192,1700,1600,800,1600,32,32,mi200,56,1638.4,roofline|SQ|LDS|SQC|TA|TD|TCP|TCC|SPI|CPC|CPF
+gemm,"./omniperf_launch.sh",83a415d7419d,AMD EPYC 7763 64-Core Processor,Ubuntu 20.04.6 LTS,5.15.0-58-generic,5.6.0-67,Tue Nov 21 16:46:09 2023 (EST),gfx90a,8,104,4,64,32,1024,16,8192,1700,1600,800,1600,32,32,mi200,56,1638.4,roofline|SQ|LDS|SQC|TA|TD|TCP|TCC|SPI|CPC|CPF

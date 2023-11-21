@@ -89,7 +89,7 @@ hand_picked_configs = [
 ]
 
 kernel_simt = KernelHandler(
-    source_file='src/simt_gemm/simt_gemm.cu' if PLATFORM == 'nvidia' else 'src/simt_gemm.cpp',
+    source_file='src/simt_gemm/simt_gemm.cu' if PLATFORM == 'nvidia' else 'src/simt_gemm/simt_gemm.cpp',
     compile_configs=list(gen_configs()),
     keys=['m', 'k', 'n'],
     platform=PLATFORM,
