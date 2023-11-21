@@ -61,7 +61,7 @@ hand_picked_configs = [
 
 
 kernel_simtv6 = KernelHandler(
-    source_file='src/simt_gemmv6.cu',
+    source_file='src/simt_gemm/simt_gemmv6.cu',
     compile_configs=hand_picked_configs,
     keys=['m', 'k', 'n'],
     platform='nvidia',

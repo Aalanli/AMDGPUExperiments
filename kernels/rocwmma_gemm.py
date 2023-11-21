@@ -18,7 +18,7 @@ configs = [
 ]
 
 kernel = KernelHandler(
-    source_file='src/rocwmma_gemm.cpp',
+    source_file='src/mma_gemm/rocwmma_gemm.cpp',
     compile_configs=list(generate_configs()),
     keys=['m', 'k', 'n'],
     platform='amd',

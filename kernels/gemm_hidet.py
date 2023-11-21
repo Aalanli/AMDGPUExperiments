@@ -62,7 +62,7 @@ else:
         }),
     ]
 
-source_file = 'src/simt_gemm_hidet.cu' if PLATFORM == 'nvidia' else 'src/simt_gemm_hidet.cpp'
+source_file = 'src/simt_gemm/simt_gemm_hidet.cu' if PLATFORM == 'nvidia' else 'src/simt_gemm/simt_gemm_hidet.cpp'
 
 hidet_kernel = KernelHandler(
     source_file=source_file,

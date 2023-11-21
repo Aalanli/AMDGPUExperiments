@@ -16,7 +16,7 @@ rocgemm_configs = [
     KernelConfig({'BLOCKSIZE_M': 64, 'BLOCKSIZE_N': 64, 'BLOCKSIZE_K': 64, 'WARPSZ_M': 32, 'WARPSZ_N': 32, 'READ_A_DIM': 64, 'READ_B_DIM': 64, 'TYPE': 'float'}),
 ]
 kernel_rocblas = KernelHandler(
-    source_file='src/rocblas_gemm.cpp',
+    source_file='src/misc/rocblas_gemm.cpp',
     compile_configs=rocgemm_configs,
     keys=['m', 'n', 'k', 'version'],
     platform=PLATFORM,
@@ -89,7 +89,7 @@ hand_picked_configs = [
 ]
 
 kernel_simt = KernelHandler(
-    source_file='src/simt_gemm.cu' if PLATFORM == 'nvidia' else 'src/simt_gemm.cpp',
+    source_file='src/simt_gemm/simt_gemm.cu' if PLATFORM == 'nvidia' else 'src/simt_gemm.cpp',
     compile_configs=list(gen_configs()),
     keys=['m', 'k', 'n'],
     platform=PLATFORM,

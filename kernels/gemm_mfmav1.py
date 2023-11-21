@@ -25,7 +25,7 @@ configs = [
 ]
 
 kernel = KernelHandler(
-    source_file='src/mfma_gemm.cpp', 
+    source_file='src/mma_gemm/mfma_gemm.cpp', 
     compile_configs=list(generate_configs()),
     keys=['m', 'k', 'n', 'version'],
     platform='amd',

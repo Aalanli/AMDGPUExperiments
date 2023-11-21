@@ -21,7 +21,7 @@ kernels: Dict[PipelineParam, KernelHandler] = {}
 
 def run_experiment(param: PipelineParam, grid_dim=1, repeats=16, additional_smem=0):
     if param not in kernels:
-        kernels[param] = KernelHandler('src/pipeline_test.cpp', 
+        kernels[param] = KernelHandler('src/misc/pipeline_test.cpp', 
                                        [KernelConfig({'SHARED_ITERS': param.smem_iter,
                                                      'REG_ITERS': param.reg_iter,
                                                      'SMEM_READ_STRIDE': param.smem_read_stride,
