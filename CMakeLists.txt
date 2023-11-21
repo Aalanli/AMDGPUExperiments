@@ -51,12 +51,12 @@ target_compile_options(ck_test PRIVATE ${OpenMP_CXX_FLAGS})
 target_link_libraries(ck_test PRIVATE hip::device composable_kernel::device_operations ${OpenMP_CXX_FLAGS})
 
 
-# add_executable(wmma_test
-#     ${CMAKE_SOURCE_DIR}/src/rocwmma_example.cpp
-# )
+add_executable(wmma_test
+    ${CMAKE_SOURCE_DIR}/src/misc/rocwmma_example.cpp
+)
 
-# target_compile_options(wmma_test PRIVATE ${OpenMP_CXX_FLAGS})
-# target_link_libraries(wmma_test PRIVATE hip::device ${OpenMP_CXX_FLAGS})
+target_compile_options(wmma_test PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(wmma_test PRIVATE hip::device ${OpenMP_CXX_FLAGS})
 
 
 add_library(
@@ -96,6 +96,6 @@ build_this("misc/copy.cpp" OFF)
 build_this("simt_gemm/simt_gemm.cpp" OFF)
 build_this("simt_gemm/simt_gemm_hidet.cpp" OFF)
 build_this("mma_gemm/mfma_gemm.cpp" OFF)
-build_this("mma_gemm/mfma_tools.cpp", OFF)
-build_this("mma_gemm/mfma_gemmv2.cpp" ON)
-# build_this("rocwmma_gemm", OFF)
+build_this("mma_gemm/mfma_tools.cpp" OFF)
+build_this("mma_gemm/mfma_gemmv2.cpp" OFF)
+build_this("mma_gemm/rocwmma_gemm.cpp" OFF)
