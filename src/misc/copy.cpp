@@ -11,7 +11,7 @@
 #include <string>
 
 #include "hip_utils.hpp"
-
+#include "bench_utils.hpp"
 
 
 void __global__ copy_kernel(float* __restrict__ a, float* __restrict__ b, const int n) {

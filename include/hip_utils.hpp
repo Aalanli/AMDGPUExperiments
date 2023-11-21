@@ -30,66 +30,6 @@
     }
 #endif
 
-void __global__ inline init_kernel(float* __restrict__ a, float v, int n) {
-    const int stride = blockDim.x * gridDim.x;
-    int tid = threadIdx.x + blockIdx.x * blockDim.x;
-    while (tid < n) {
-        a[tid] = v;
-        tid += stride;
-    }
-}
-
-void inline fill(float* __restrict__ a, float v, int n) {
-    int n_grid = (n + 1023) / 1024;
-    hipLaunchKernelGGL(init_kernel, dim3(n_grid), dim3(1024), 0, 0, a, v, n);
-}
-
-
-template <typename F>
-float inline bench(F&& func, int warmup, int iter) {
-    hipEvent_t starts[iter];
-    hipEvent_t   ends[iter];
-
-    for (int i = 0; i < iter; i++) {
-        hipEventCreate(starts + i);
-        hipEventCreate(ends + i);
-    }
-
-
-    float* temp_buf;
-    hipMalloc(&temp_buf, int(1e3));
-
-    for (int i = 0; i < warmup; i++) {
-        func();
-    }
-
-    hipDeviceSynchronize();
-    for (int i = 0; i < iter; i++) {
-        fill(temp_buf, 0.0f, int(1e3));
-        hipEventRecord(starts[i]);
-
-        func();
-        hipEventRecord(ends[i]);
-
-    }
-    hipDeviceSynchronize();
-    float times = 0.0;
-    for (int i = 0; i < iter; i++) {
-        float t;
-        hipEventElapsedTime(&t, starts[i], ends[i]);
-        times += t;
-    }
-
-    hipFree(temp_buf);
-
-    for (int i = 0; i < iter; i++) {
-        hipEventDestroy(starts[i]);
-        hipEventDestroy(ends[i]);
-    }
-
-    return times / iter;
-}
-
 __device__ __host__ int inline cdiv(int a, int b) {
     return (a + b - 1) / b;
 }

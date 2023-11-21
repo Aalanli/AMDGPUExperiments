@@ -82,4 +82,5 @@ int test() {
     printf("\n");
     hipFree(d_a);
     hipFree(d_b);
+    return 0;
 }
