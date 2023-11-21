@@ -13,6 +13,7 @@
 #define EXPORT extern "C" __attribute__((visibility("default")))
 #endif
 
+
 #define KERNEL(lb_) static __global__ __launch_bounds__((lb_)) void
 
 
@@ -29,6 +30,7 @@
         exit(EXIT_FAILURE);                       \
     }
 #endif
+
 
 __device__ __host__ int inline cdiv(int a, int b) {
     return (a + b - 1) / b;

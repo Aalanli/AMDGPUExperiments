@@ -16,4 +16,6 @@
 #define _Warps 1
 #endif
 
-
+#ifndef LAUNCH_NAME
+#define LAUNCH_NAME _kernel
+#endif

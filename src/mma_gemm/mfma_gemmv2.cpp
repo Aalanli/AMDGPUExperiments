@@ -1,3 +1,4 @@
+#include "hip_utils.hpp"
 #include "mfma_tools.cpp"
 
 template <int BLOCK_M, int BLOCK_K, int BLOCK_N, int Warps>
@@ -104,16 +105,10 @@ struct GemmFmfa_f32_16x16x4_f32v1 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N,
     }
 };
 
-#ifndef LAUNCH_NAME
-#define LAUNCH_NAME mfma_gemmv2
-#endif
-
 #include "launch_defs.hpp"
 
-extern "C" __attribute__((visibility("default"))) bool LAUNCH_NAME(
-    const float * __restrict__ A,
-    const float * __restrict__ B,
-    float * __restrict__ C,
+EXPORT bool LAUNCH_NAME(
+    const float* A, const float* B, float* C,
     int M, int K, int N
 ) {
     return run_kernel<GemmFmfa_f32_16x16x4_f32v1<_BLOCK_N, _BLOCK_K, _BLOCK_N, _Warps>>(
