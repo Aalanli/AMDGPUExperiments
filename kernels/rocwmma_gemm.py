@@ -7,8 +7,8 @@ def generate_configs():
         for mma_k in [4, 8, 16, 32, 64]:
             for rep_m, rep_n in [(1, 1), (1, 2), (2, 1), (2, 2)]:
                 for warp_m, warp_n in [(1, 1), (1, 2), (2, 1), (2, 2)]:
-                    for nstages in [1, 2]:
-                        for unroll_k in [0, 1]:
+                    for nstages in [1]:
+                        for unroll_k in [0]:
                             yield KernelConfig({'MMA_M': mma_m, 'MMA_N': mma_n, 'MMA_K': mma_k, 
                                                 'REP_M': rep_m, 'REP_N': rep_n, 'WARP_M': warp_m,
                                                 'WARP_N': warp_n, 'NSTAGES': nstages, 'UNROLL_LASTK': unroll_k})
@@ -40,8 +40,8 @@ def wmma_gemm(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
 if __name__ == '__main__':
     a = torch.arange(0, 64, device='cuda')[None, :] + torch.arange(0, 64, device='cuda')[:, None] * 64
     a = a.float()
-    a = torch.randn([512, 512], device='cuda')
-    b = torch.randn([512, 512], device='cuda')
+    a = torch.randn([1024, 1024], device='cuda')
+    b = torch.randn([1024, 1024], device='cuda')
     # b = torch.eye(64, device='cuda')
     c1 = a @ b
     c = wmma_gemm(a, b)
