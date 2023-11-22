@@ -12,11 +12,12 @@ from triton.ops.matmul import matmul
 a = torch.empty([1024, 1024], device='cuda')
 b = torch.empty([1024, 1024], device='cuda')
 
-c = a @ b
-hidet_simt(a, b, version=1)
-ck_gemm(a, b, 14)
-ck_gemm_dl(a, b)
-mfma_gemmv1(a, b)
-mfma_gemmv2(a, b)
-wmma_gemm(a, b)
+# c = a @ b
+# hidet_simt(a, b, version=1)
+# ck_gemm(a, b, 14)
+# ck_gemm_dl(a, b)
+mfma_gemmv1(a, b, version=1)
+# mfma_gemmv2(a, b)
+mfma_gemmv2(a, b, ver=1, pack_len=4)
+# wmma_gemm(a, b)
 # matmul(a, b)

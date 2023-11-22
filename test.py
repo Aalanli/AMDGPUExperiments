@@ -1,4 +1,14 @@
 # %%
+contig = 2
+a, b = 4, 16
+for i in range(0, a):
+    if a < b // contig:
+        print([(i ^ (j // contig)) * contig for j in range(0, b)])
+    else:
+        print([((i % (b // contig)) ^ (j // contig)) * contig for j in range(0, b)])
+
+
+# %%
 import torch
 from kernels.rocwmma_gemm import wmma_gemm
 

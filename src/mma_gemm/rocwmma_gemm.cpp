@@ -55,13 +55,13 @@ __global__ __launch_bounds__(nthreads) void gemm_wmma_f32_kernel(
 ) {
     using FragA = rocwmma::fragment<rocwmma::matrix_a, MMA_M, MMA_N, MMA_K, float, rocwmma::row_major>;
     using IOS = FragA::IOConfig::IOShape;
-    IOS::BlockDim; // 32
-    IOS::KDim;     // 64
-    IOS::VectorWidth;  // 4
-    IOS::MaxVectorWidth; // 4
-    using Layout = IOS::MatrixLayout;
-    Layout::ColOrthoVW::Traits::LargeDim; // 0
-    Layout::ColOrthoVW::Traits::MaxKPerIO; // 8
+    // IOS::BlockDim; // 32
+    // IOS::KDim;     // 64
+    // IOS::VectorWidth;  // 4
+    // IOS::MaxVectorWidth; // 4
+    // using Layout = IOS::MatrixLayout;
+    // Layout::ColOrthoVW::Traits::LargeDim; // 0
+    // Layout::ColOrthoVW::Traits::MaxKPerIO; // 8
 
 
     using FragB = rocwmma::fragment<rocwmma::matrix_b, MMA_M, MMA_N, MMA_K, float, rocwmma::row_major>;

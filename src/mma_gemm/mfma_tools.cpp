@@ -77,3 +77,104 @@ bool run_kernel(
     }
     return true;
 }
+
+constexpr int next_power_of_2(int n) {
+    n -= 1;
+    n |= n >> 1;
+    n |= n >> 2;
+    n |= n >> 4;
+    n |= n >> 8;
+    n |= n >> 16;
+    n += 1;
+    return n;
+}
+
+constexpr bool is_power_of_2(int n) {
+    return next_power_of_2(n) == n;
+}
+
+template <int S1, int S2, int Contig>
+struct SMemSwizzleLayout {
+    float* ptr;
+    
+    static_assert(S2 > Contig && S2 % Contig == 0);
+    static_assert(is_power_of_2(S1) && is_power_of_2(S2 / Contig), "Dimensions have to be powers of 2");
+    DevHost float* index(int i, int j) {
+        // use the smaller dimension to swizzle the larger one
+        if constexpr(S1 < S2 / Contig) {
+            return ptr + (i * S2 + (i ^ (j / Contig)) * Contig + j % Contig);
+        } else {
+            return ptr + (i * S2 + ((i % (S2 / Contig)) ^ (j / Contig)) * Contig + j % Contig);
+        }
+    }
+};
+
+template <int S1, int S2>
+struct RowLayout {
+    static constexpr int s1 = S1;
+    static constexpr int s2 = S2;
+
+    static DevHost int index(int i, int j) {
+        return i * S2 + j;
+    }
+};
+
+template <typename L1, typename L2>
+struct ComposeLayout {
+    static constexpr int s1 = L1::s1 * L2::s1;
+    static constexpr int s2 = L1::s2 * L2::s2;
+    
+    static DevHost int index(int i, int j) {
+        return L1::index((i / L2::s1) * L2::s1, (j / L2::s2) * L2::s2) +
+               L2::index((i % L2::s1), (j % L2::s2));
+    }
+};
+
+template <int pack>
+__device__ void vec_load(const float* ptr, float* dest) {
+    static_assert(pack == 1 || pack == 2 || pack == 4, "illegal vector load number");
+    if constexpr(pack == 1) {
+        *dest = *ptr;
+    } else if constexpr (pack == 2) {
+        // well hopefully this will be optimized away if dest points to registers
+        float2 v = *((float2*) ptr);
+        dest[0] = v.x;
+        dest[1] = v.y;
+    } else {
+        float4 v = *((float4*) ptr);
+        dest[0] = v.x;
+        dest[1] = v.y;
+        dest[2] = v.z;
+        dest[3] = v.w;
+    }
+}
+
+template <int pack>
+__device__ void vec_load_nullable(const float* ptr, float* dest) {
+    static_assert(pack == 1 || pack == 2 || pack == 4, "illegal vector load number");
+    if constexpr(pack == 1) {
+        if (ptr)
+            *dest = *ptr;
+        else
+            *dest = 0.0f;
+    } else if constexpr (pack == 2) {
+        // well hopefully this will be optimized away if dest points to registers
+        float2 v;
+        if (ptr)
+            v = *((float2*) ptr);
+        else
+            v = {0.0f, 0.0f};
+        dest[0] = v.x;
+        dest[1] = v.y;
+    } else {
+        float4 v;
+        if (ptr)
+            v = *((float4*) ptr);
+        else
+            v = {0.0f, 0.0f, 0.0f, 0.0f};
+        dest[0] = v.x;
+        dest[1] = v.y;
+        dest[2] = v.z;
+        dest[3] = v.w;
+    }
+}

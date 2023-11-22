@@ -22,20 +22,20 @@ configs = [
 kernel = KernelHandler(
     source_file='src/mma_gemm/mfma_gemmv2.cpp', 
     compile_configs=list(generate_configs()),
-    keys=['m', 'k', 'n'],
+    keys=['m', 'k', 'n', 'ver', 'pack_len'],
     platform='amd',
     disable_benchmark=False,
     ignore_compile_errors=True,
     parallel_compile=True
 )
 
-def mfma_gemmv2(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+def mfma_gemmv2(a: torch.Tensor, b: torch.Tensor, ver: int = 0, pack_len: int = 4) -> torch.Tensor:
     assert a.shape[1] == b.shape[0]
     assert len(a.shape) == len(b.shape) == 2
     m, k = a.shape
     n = b.shape[1]
-    c = torch.zeros((m, n), device=a.device, dtype=a.dtype) - 1
-    kernel(a, b, c, m=m, k=k, n=n)
+    c = torch.empty((m, n), device=a.device, dtype=a.dtype)
+    kernel(a, b, c, m=m, k=k, n=n, ver=ver, pack_len=pack_len)
     return c
 
 
@@ -46,7 +46,7 @@ if __name__ == '__main__':
     b = torch.randn([1024, 1024], device='cuda')
     # b = torch.eye(32, device='cuda')
     c1 = a @ b
-    c = mfma_gemmv2(a, b)
+    c = mfma_gemmv2(a, b, ver=1, pack_len=4)
     err = (c1 - c).abs()
     print(c)
     print(err)

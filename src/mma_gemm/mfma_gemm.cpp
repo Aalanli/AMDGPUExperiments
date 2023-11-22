@@ -195,7 +195,9 @@ __global__ void mfma_f32_16x16x4f32_gemm_kernelv2(
     float4 regs_c[rep_m][rep_n];
 
     auto mma = [&]() {
+        #pragma unroll
         for (int i = 0; i < rep_m; ++i) {
+            #pragma unroll
             for (int j = 0; j < rep_n; ++j) {
                 regs_c[i][j] = __builtin_amdgcn_mfma_f32_16x16x4f32(
                     regs_a[i], regs_b[j], regs_c[i][j], 0, 0, 0);
@@ -218,6 +220,7 @@ __global__ void mfma_f32_16x16x4f32_gemm_kernelv2(
         constexpr int stride_m = nthreads / block_k;
         constexpr int reps = block_m / stride_m;
 
+        #pragma unroll
         for (int i = 0; i < reps; ++i) {
             int coord_m = col + i * stride_m + blockIdx.x * block_m;
             int coord_k = row + offset_k;
@@ -234,6 +237,7 @@ __global__ void mfma_f32_16x16x4f32_gemm_kernelv2(
         constexpr int stride_k = nthreads / block_n;
         constexpr int reps = block_k / stride_k;
 
+        #pragma unroll
         for (int i = 0; i < reps; ++i) {
             int coord_k = col + i * stride_k + offset_k;
             int coord_n = row + blockIdx.y * block_n;
@@ -246,6 +250,7 @@ __global__ void mfma_f32_16x16x4f32_gemm_kernelv2(
         int offset_m = lane % mma_m + warp_m * rep_m * mma_m;
         int offset_K = k_idx * mma_k + lane / mma_m;
 
+        #pragma unroll
         for (int i = 0; i < rep_m; ++i) {
             int im = offset_m + i * mma_m;
             regs_a[i] = sA[im][(offset_K + im) % block_k];
@@ -256,14 +261,18 @@ __global__ void mfma_f32_16x16x4f32_gemm_kernelv2(
         int offset_n = lane % mma_n + warp_n * rep_n * mma_n;
         int offset_k = k_idx * mma_k + lane / mma_n;
 
+        #pragma unroll
         for (int i = 0; i < rep_n; ++i) {
             regs_b[i] = sB[offset_k][offset_n + i * mma_n];
         }
     };
 
     auto store_c_r2g = [&]() {
+        #pragma unroll
         for (int im = 0; im < rep_m; ++im) {
+            #pragma unroll
             for (int in = 0; in < rep_n; ++in) {
+                #pragma unroll
                 for (int k = 0; k < 4; ++k) {
                     int coord_m = k + (lane / 16) * 4 + im * mma_m + warp_m * rep_m * mma_m + blockIdx.x * block_m;
                     int coord_n = (lane % 16) + in * mma_n + warp_n * rep_n * mma_n + blockIdx.y * block_n;

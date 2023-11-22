@@ -29,7 +29,7 @@ struct GemmFmfa_f32_16x16x4_f32v1 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N,
     const int warp_n = warp_id / warps_m;
     const int offset_m = blockIdx.x * BLOCK_M + warp_m * rep_m * mma_m;
     const int offset_n = blockIdx.y * BLOCK_N + warp_n * rep_n * mma_n;
-    static_assert(BLOCK_K % mma_k == 0, "");
+    static_assert(BLOCK_K % (mma_k) == 0, "");
 
     using float4 = __attribute__( (__vector_size__(4 * sizeof(float)) )) float;
     float atile[rep_m][BLOCK_K / mma_k], btile[rep_n][BLOCK_K / mma_k];
@@ -108,65 +108,97 @@ struct GemmFmfa_f32_16x16x4_f32v1 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N,
     }
 };
 
-template <int pack>
-__device__ void vec_load(float* ptr, float* dest) {
-    static_assert(pack == 1 || pack == 2 || pack == 4, "");
-    if constexpr(pack == 1) {
-        *dest = *ptr;
-    } else if constexpr (pack == 2) {
-        // well hopefully this will be optimized away if dest points to registers
-        float2 v = *((float2*) ptr);
-        dest[0] = v.x;
-        dest[1] = v.y;
-    } else {
-        float4 v = *((float4*) ptr);
-        dest[0] = v.x;
-        dest[1] = v.y;
-        dest[2] = v.z;
-        dest[3] = v.w;
-    }
-}
 
 template <int BLOCK_M, int BLOCK_K, int BLOCK_N, int Warps, int VectorPackLen = 4>
 struct GemmFmfa_f32_16x16x4_f32v2 : public GemmFmfa_f32_16x16x4_f32v1<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
     using GemmFmfa_f32_16x16x4_f32v1<BLOCK_M, BLOCK_K, BLOCK_N, Warps>::GemmFmfa_f32_16x16x4_f32v1;
     using super = GemmFmfa_f32_16x16x4_f32v1<BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
 
+    static_assert(BLOCK_K % (VectorPackLen * super::mma_k) == 0, "");
     static constexpr int reps_k = BLOCK_K / (VectorPackLen * super::mma_k);
 
     __device__ void load_a_g2r(int offset_k) {
-        const int wk = this->lane % this->mma_m;
-        const int wm = this->lane / this->mma_m;
+        const int wm = this->lane % this->mma_m;
+        const int wk = this->lane / this->mma_m;
+        #pragma unroll
         for (int i = 0; i < this->rep_m; ++i) {
+            #pragma unroll
             for (int k = 0; k < reps_k; ++k) {
-                float* ptr = this->a + 
+                const float* ptr = this->a + 
                     (this->offset_m + i * this->mma_m + wm) * this->k + 
-                    this->offset_k + k * this->mma_k * VectorPackLen + wk;
-                this->atile[i][k] = this->a[
-                    (this->offset_m + i * this->mma_m + wm) * this->k + 
-                    this->offset_k + k * this->mma_k + wk
-                ];
-                // in thread transpose
-                //  a[wm][wk] = ...
-                //  a[wk][wm] = a[wm][wk]
-                atile[i][k] = __shfl(atile[i][k], (lane % mma_m) * mma_k + (lane / mma_m));
+                    offset_k + k * this->mma_k * VectorPackLen + wk * VectorPackLen;
+                vec_load<VectorPackLen>(ptr, &this->atile[i][k * VectorPackLen]);
             }
         }
     }
 
+    __device__ void load_b_g2r(int offset_k) {
+        const int wn = this->lane % this->mma_n;
+        const int wk = this->lane / this->mma_n;
+        #pragma unroll
+        for (int i = 0; i < this->rep_n; ++i) {
+            #pragma unroll
+            for (int k = 0; k < reps_k; ++k) {
+                #pragma unroll
+                for (int vk = 0; vk < VectorPackLen; ++vk) {
+                    const float* ptr = this->b + 
+                        (offset_k + k * this->mma_k * VectorPackLen + wk * VectorPackLen + vk) * this->n + 
+                        i * this->mma_n + this->offset_n + wn;
+                    this->btile[i][k * VectorPackLen + vk] = *ptr;
+                }
+            }
+        }
+    }
+
+    __device__ void run() {
+        this->fill_c(0.0f);
+        for (int k = 0; k < this->k; k += BLOCK_K) {
+            load_a_g2r(k);
+            load_b_g2r(k);
+            this->mma();
+        }
+        this->store_c();
+    }
+
+    
 };
 
 
 #include "launch_defs.hpp"
 
+
 EXPORT bool LAUNCH_NAME(
     const float* A, const float* B, float* C,
-    int M, int K, int N
+    int M, int K, int N, int ver, int pack_len
 ) {
     using GemmInstance = GemmFmfa_f32_16x16x4_f32v1<_BLOCK_M, _BLOCK_K, _BLOCK_N, _Warps>;
     // printf("rep_m %d, rep_n %d\n", GemmInstance::rep_m, GemmInstance::rep_n);
     // printf("warps_m %d, warps_n %d\n", GemmInstance::warps_m, GemmInstance::warps_n);
-    return run_kernel<GemmInstance>(
-        A, B, C, M, K, N
-    );
+    if (ver == 0)
+        return run_kernel<GemmInstance>(
+            A, B, C, M, K, N
+        );
+    else if (ver == 1) {
+        if (K % pack_len != 0)
+            return false;
+        if (pack_len == 1) {
+            using GemmInstancev2 = GemmFmfa_f32_16x16x4_f32v2<_BLOCK_M, _BLOCK_K, _BLOCK_N, _Warps, 1>;
+            return run_kernel<GemmInstancev2>(
+                A, B, C, M, K, N
+            );
+        } else if (pack_len == 2) {
+            using GemmInstancev2 = GemmFmfa_f32_16x16x4_f32v2<_BLOCK_M, _BLOCK_K, _BLOCK_N, _Warps, 2>;
+            return run_kernel<GemmInstancev2>(
+                A, B, C, M, K, N
+            );
+        } else if (pack_len == 4) {
+            using GemmInstancev2 = GemmFmfa_f32_16x16x4_f32v2<_BLOCK_M, _BLOCK_K, _BLOCK_N, _Warps, 4>;
+            return run_kernel<GemmInstancev2>(
+                A, B, C, M, K, N
+            );
+        } else {
+            return false;
+        }
+    }
+    return false;
 }
