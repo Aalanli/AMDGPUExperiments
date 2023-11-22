@@ -1,24 +1,45 @@
 #include <stdio.h>
+#include <tuple>
 
-struct A {
-    virtual void foo() {
-        printf("a");
-    }
 
-    void dispatch() {
-        foo();
-    }
+template <int D, typename Tail>
+struct SCons {
+    static constexpr int head = D;
+    using tail = Tail;
 };
 
-struct B : A {
-    void foo() override {
-        printf("b");
-    }
+struct STail;
+
+template <int Dim, int... Dims>
+struct DimParams {
+    using value_t = SCons<Dim, typename DimParams<Dims...>::value_t>;
 };
+
+template <int Dim>
+struct DimParams<Dim> {
+    using value_t = SCons<Dim, STail>;
+};
+
+template <typename F, typename DimInfo, typename... Indices>
+void repeat_impl(F& f, Indices... indices) {
+    if constexpr(std::is_same<DimInfo, STail>::value) {
+        f(indices...);
+    } else {
+        static constexpr int d = DimInfo::head;
+        for (int i = 0; i < d; ++i) {
+            repeat_impl<F, typename DimInfo::tail>(f, indices..., i);
+        }
+    }
+}
+
+template <int... Dims, typename F>
+void repeat(F&& f) {
+    using DimInfo = typename DimParams<Dims...>::value_t;
+    repeat_impl<F, DimInfo>(f);
+}
 
 int main() {
-    auto a = A();
-    auto b = B();
-    a.dispatch();
-    b.dispatch();
+    repeat<3, 4>([&](int i, int j) {
+        printf("i %d, j %d \n", i, j);
+    });
 }

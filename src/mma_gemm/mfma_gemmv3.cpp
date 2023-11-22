@@ -1,7 +1,9 @@
 #include "hip_utils.hpp"
 #include "mfma_tools.cpp"
 #include <hip/amd_detail/amd_hip_runtime.h>
+#include <hip/amd_detail/amd_warp_functions.h>
 #include <stdio.h>
+#include <tuple>
 
 
 /// block level
@@ -81,6 +83,9 @@ struct LdgBlockFrag {
 /// warp level
 template <int BLOCK_K>
 struct MFMAF32_16x16F32_ATile {
+    static constexpr int tile_m = 16;
+    static constexpr int tile_k = BLOCK_K;
+
     static constexpr int mma_m = 16;
     static constexpr int mma_k = 4;
     static constexpr int rep_k = BLOCK_K / mma_k;
@@ -108,6 +113,9 @@ struct MFMAF32_16x16F32_ATile {
 /// warp level
 template <int BLOCK_K>
 struct MFMAF32_16x16F32_BTile {
+    static constexpr int tile_n = 16;
+    static constexpr int tile_k = BLOCK_K;
+
     static constexpr int mma_k = 4;
     static constexpr int mma_n = 16;
     static constexpr int rep_k = BLOCK_K / mma_k;
@@ -142,39 +150,177 @@ struct MFMAF32_16x16F32_CTile {
         regs[2] = v;
         regs[3] = v;
     }
+
+    template <typename GMemC>
+    __device__ void copy_r2g(GMemC &gC, int offset_m, int offset_n) {
+        int lane = threadIdx.x / warp_size;
+        for (int i = 0; i < 4; ++i) {
+            auto ptr = gC.index(offset_m + (lane / 16) * 4 + i, offset_n + lane % 16);
+            if (ptr)
+                *ptr = regs[i];
+        }
+    }
 };
 
 
 /// warp level
+
+template <typename TileA, typename TileB, typename TileC>
+struct TileMMA {
+    __device__ static void mma(TileA& a, TileB& b, TileC& c) {}
+};
+
 template <int BLOCK_K>
-void mma(MFMAF32_16x16F32_ATile<BLOCK_K> &atile, MFMAF32_16x16F32_BTile<BLOCK_K> &btile, MFMAF32_16x16F32_CTile &ctile) {
-    constexpr int rep_k = MFMAF32_16x16F32_ATile<BLOCK_K>::rep_k;
-    for (int i = 0; i < rep_k; ++i) {
-        ctile.regs = __builtin_amdgcn_mfma_f32_16x16x4f32(
-            atile.regs[i], btile.regs[i], ctile.regs, 0, 0, 0
-        );
-    }
-}
-
-template <int BLOCK_M, int BLOCK_K, int BLOCK_N, int Warps>
-struct GemmMfma_f32_16x16x4_f32_Base : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
-    using BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
-    static constexpr int mma_m = 16;
-    static constexpr int mma_n = 16;
-    static constexpr int mma_k = 4;
-    static_assert(BLOCK_M % mma_m == 0, "");
-    static_assert(BLOCK_N % mma_n == 0, "");
-    static constexpr int warps_m = Min<BLOCK_M / mma_m, Warps>::value;
-    static_assert(Warps % warps_m == 0, "");
-    static constexpr int warps_n = Min<BLOCK_N / mma_n, Warps / warps_m>::value;
-
-    static constexpr int rep_m = Max<BLOCK_M / (warps_m * mma_m), 1>::value;
-    static constexpr int rep_n = Max<BLOCK_N / (warps_n * mma_n), 1>::value;
-    // this could be removed if we check for oversubscription, eg: return from start
-    static_assert(warps_m * warps_n == Warps, "");
-
-    static constexpr int used_smem_bytes() {
-        return (BLOCK_M + BLOCK_N) * BLOCK_K * sizeof(float);
+struct TileMMA<MFMAF32_16x16F32_ATile<BLOCK_K>, MFMAF32_16x16F32_BTile<BLOCK_K>, MFMAF32_16x16F32_CTile> {
+    __device__ static void mma(MFMAF32_16x16F32_ATile<BLOCK_K> &atile, MFMAF32_16x16F32_BTile<BLOCK_K> &btile, MFMAF32_16x16F32_CTile &ctile) {
+        constexpr int rep_k = MFMAF32_16x16F32_ATile<BLOCK_K>::rep_k;
+        for (int i = 0; i < rep_k; ++i) {
+            ctile.regs = __builtin_amdgcn_mfma_f32_16x16x4f32(
+                atile.regs[i], btile.regs[i], ctile.regs, 0, 0, 0
+            );
+        }
     }
 
 };
+
+
+/// block level
+template <int BLOCK_M, 
+          int BLOCK_K, 
+          int BLOCK_N, 
+          typename ATile, 
+          typename BTile, 
+          typename CTile, 
+          int Warps>
+struct GemmBlockT {
+    static constexpr int tile_m = ATile::tile_m;
+    static constexpr int tile_k = ATile::tile_k;
+    static_assert(ATile::tile_k == BTile::tile_k, "");    
+    static constexpr int tile_n = BTile::tile_n;
+
+    static constexpr int block_m = BLOCK_M;
+    static constexpr int block_k = BLOCK_K;
+    static constexpr int block_n = BLOCK_N;
+    static constexpr int warps = Warps;
+    static_assert(block_m % tile_m == 0, "");
+    static_assert(block_k % tile_k == 0, "");
+    static_assert(block_n % tile_n == 0, "");
+
+    static constexpr int warps_m = Min<BLOCK_M / tile_m, Warps>::value;
+    static constexpr int warps_n = Min<BLOCK_N / tile_n, Warps / warps_m>::value;
+
+    static constexpr int rep_m = Max<BLOCK_M / (warps_m * tile_m), 1>::value;
+    static constexpr int rep_n = Max<BLOCK_N / (warps_n * tile_n), 1>::value;
+    static constexpr int rep_k = BLOCK_K / tile_k;
+    // this could be removed if we check for oversubscription, eg: return from start
+    static_assert(warps_m * warps_n == Warps, "");
+
+    CTile Ctiles[rep_m][rep_n];
+
+    __device__ void fill_c(float v) {
+        repeat<rep_m, rep_n>([&](int i, int j) {
+            Ctiles[i][j].fill(v);
+        }); 
+    }
+
+    template <typename GMemC>
+    __device__ void copy_r2g(GMemC &gC) {
+        int warp = threadIdx.x / warp_size;
+        int warp_m = warp % warps_m;
+        int warp_n = warp / warps_m;
+        repeat<rep_m, rep_n>([&](int i, int j) {
+            Ctiles[i][j].copy_g2r(&gC, warp_m * rep_m * tile_m + i * tile_m, warp_n * rep_n * tile_n + j * tile_n);
+        });
+    }
+
+};
+
+template <int BLOCK_M, 
+          int BLOCK_K, 
+          int BLOCK_N, 
+          typename ATile, 
+          typename BTile, 
+          typename CTile, 
+          typename MMA,
+          int Warps>
+struct GemmBlockT_V1 : GemmBlockT<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps> {
+    using super = GemmBlockT<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps>;
+
+    ATile Atiles[super::rep_m];
+    BTile Btiles[super::rep_n];
+
+    template <typename SMemA, typename SMemB>
+    __device__ void mma(SMemA &sA, SMemB &sB) {
+        int warp = threadIdx.x / warp_size;
+        int warp_m = warp % super::warps_m;
+        int warp_n = warp / super::warps_n;
+
+        for (int k = 0; k < super::rep_k; k++) {
+            // load m
+            for (int im = 0; im < super::rep_m; im++) {
+                Atiles[im].copy_s2r(
+                    sA, 
+                    warp_m * super::tile_m * super::rep_m + im * super::tile_m, 
+                    k * super::tile_k
+                );
+            }
+
+            // load n
+            for (int in = 0; in < super::rep_n; in++) {
+                Btiles[in].copy_s2r(
+                    sB, 
+                    k * super::tile_k,
+                    warp_n * super::tile_n * super::rep_n + in * super::tile_n
+                );
+            }
+
+            // mma
+            repeat<super::rep_m, super::rep_n>([&](int i, int j) {
+                MMA::mma(Atiles[i], Btiles[j], this->Ctiles[i][j]);
+            });
+        }
+    }
+};
+
+template <int BLOCK_M, int BLOCK_K, int BLOCK_N, int VecLoad, int InnerK, int Warps>
+KERNEL(Warps * warp_size) gemm_mfma_f32_16x16x4f32_v3(
+    const float * __restrict__ A,
+    const float * __restrict__ B,
+    float * __restrict__ C,
+    int M, int K, int N
+) {
+    const int offset_m = blockIdx.x * BLOCK_M;
+    const int offset_n = blockIdx.y * BLOCK_N;
+    GMemTile<const float> gA = {A, M, K, offset_m, 0};
+    GMemTile<const float> gB = {B, K, N, 0, offset_n};
+
+    __shared__ float smem[(BLOCK_N + BLOCK_M) * BLOCK_K];
+
+    SMemSwizzleLayout<BLOCK_M, BLOCK_K, VecLoad> sA = {smem};
+    SMemSwizzleLayout<BLOCK_K, BLOCK_N, VecLoad> sB = {smem + BLOCK_M * BLOCK_K};
+    using ATile = MFMAF32_16x16F32_ATile<InnerK>;
+    using BTile = MFMAF32_16x16F32_BTile<InnerK>;
+    using CTile = MFMAF32_16x16F32_CTile;
+    using Mma = TileMMA<ATile, BTile, CTile>;
+    using GemmInstance = GemmBlockT_V1<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Mma, Warps>;
+
+    using LdgA = LdgBlockFrag<BLOCK_M, BLOCK_K, Warps, VecLoad>;
+    using LdgB = LdgBlockFrag<BLOCK_K, BLOCK_N, Warps, VecLoad>;
+    LdgA ldg_a;
+    LdgB ldg_b;
+    GemmInstance block_gemm;
+    block_gemm.fill_c(0.0f);
+
+    for (int k = 0; k < cdiv(K, BLOCK_K); ++k) {
+        ldg_a.copy_g2r(&gA);
+        ldg_b.copy_g2r(&gB);
+        ldg_a.copy_r2s(&sA);
+        ldg_b.copy_r2s(&sB);
+        __syncthreads();
+        block_gemm.mma(&sA, &sB);
+        __syncthreads();
+    }
+
+    GMemTile<float> gC = {C, M, N, offset_m, offset_n};
+    block_gemm.copy_r2g(&gC);
+}
