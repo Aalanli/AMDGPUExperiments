@@ -188,14 +188,16 @@ struct SCons {
 struct STail;
 
 template <int Dim, int... Dims>
-struct DimParams {
-    using value_t = SCons<Dim, typename DimParams<Dims...>::value_t>;
+struct MakeList {
+    using value_t = SCons<Dim, typename MakeList<Dims...>::value_t>;
 };
 
 template <int Dim>
-struct DimParams<Dim> {
+struct MakeList<Dim> {
     using value_t = SCons<Dim, STail>;
 };
+
+
 
 template <typename F, typename DimInfo, typename... Indices>
 DevHost void inline repeat_impl(F& f, Indices... indices) {
@@ -212,6 +214,6 @@ DevHost void inline repeat_impl(F& f, Indices... indices) {
 
 template <int... Dims, typename F>
 DevHost void inline repeat(F&& f) {
-    using DimInfo = typename DimParams<Dims...>::value_t;
+    using DimInfo = typename MakeList<Dims...>::value_t;
     repeat_impl<F, DimInfo>(f);
 }
