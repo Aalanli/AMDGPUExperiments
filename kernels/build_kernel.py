@@ -14,7 +14,7 @@ import torch
 
 def build(ignore_error, source, out_path, amd=True, **kwargs):
     # print(f'Building {source} to {out_path}')
-    args = [f'-D {k}={v}' for k, v in kwargs.items()] + ['-fPIC', '-funroll-loops', '-ffast-math', '-O3', '-g']
+    args = [f'-D {k}={v}' for k, v in kwargs.items()] + ['-fPIC', '-funroll-loops', '-ffast-math', '-O3', '-g', '-std=c++17']
     assert os.path.exists(source) and os.path.isfile(source)
 
     file = os.path.basename(source)

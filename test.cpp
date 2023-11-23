@@ -39,7 +39,10 @@ void repeat(F&& f) {
 }
 
 int main() {
-    repeat<3, 4>([&](int i, int j) {
-        printf("i %d, j %d \n", i, j);
+    repeat<3, 4, 2>([&](int i, int j, int k) {
+        printf("i %d, j %d, k %d\n", i, j, k);
     });
+    if (nullptr) {
+        printf("test\n");
+    }
 }

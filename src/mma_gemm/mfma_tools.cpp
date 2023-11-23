@@ -1,10 +1,47 @@
 #include "hip_utils.hpp"
 #include <hip/amd_detail/amd_hip_runtime.h>
 
+#define DevHost __device__ __host__
+
+template <int D, typename Tail>
+struct SCons {
+    static constexpr int head = D;
+    using tail = Tail;
+};
+
+struct STail;
+
+template <int Dim, int... Dims>
+struct DimParams {
+    using value_t = SCons<Dim, typename DimParams<Dims...>::value_t>;
+};
+
+template <int Dim>
+struct DimParams<Dim> {
+    using value_t = SCons<Dim, STail>;
+};
+
+template <typename F, typename DimInfo, typename... Indices>
+DevHost void inline repeat_impl(F& f, Indices... indices) {
+    if constexpr(std::is_same<DimInfo, STail>::value) {
+        f(indices...);
+    } else {
+        static constexpr int d = DimInfo::head;
+        #pragma unroll
+        for (int i = 0; i < d; ++i) {
+            repeat_impl<F, typename DimInfo::tail>(f, indices..., i);
+        }
+    }
+}
+
+template <int... Dims, typename F>
+DevHost void inline repeat(F&& f) {
+    using DimInfo = typename DimParams<Dims...>::value_t;
+    repeat_impl<F, DimInfo>(f);
+}
 
 static constexpr int warp_size = 64;
 
-#define DevHost __device__ __host__
 
 template <int BLOCK_M, int BLOCK_K, int BLOCK_N, int Warps>
 struct BasicGemmInstance {
@@ -93,22 +130,6 @@ constexpr bool is_power_of_2(int n) {
     return next_power_of_2(n) == n;
 }
 
-template <int S1, int S2, int Contig>
-struct SMemSwizzleLayout {
-    float* ptr;
-    
-    static_assert(S2 > Contig && S2 % Contig == 0);
-    static_assert(is_power_of_2(S1) && is_power_of_2(S2 / Contig), "Dimensions have to be powers of 2");
-    DevHost float* index(int i, int j) {
-        // use the smaller dimension to swizzle the larger one
-        if constexpr(S1 < S2 / Contig) {
-            return ptr + (i * S2 + (i ^ (j / Contig)) * Contig + j % Contig);
-        } else {
-            return ptr + (i * S2 + ((i % (S2 / Contig)) ^ (j / Contig)) * Contig + j % Contig);
-        }
-    }
-};
-
 template <int S1, int S2>
 struct RowLayout {
     static constexpr int s1 = S1;
@@ -119,16 +140,66 @@ struct RowLayout {
     }
 };
 
+template <int S1, int S2>
+struct SwizzleLayout {
+    static constexpr int s1 = S1;
+    static constexpr int s2 = S2;
+
+    static_assert(is_power_of_2(S2), "");
+    static DevHost int index(int i, int j) {
+        if constexpr(S1 <= S2) {
+            return i * S2 + (i ^ j);
+        } else {
+            return i * S2 + ((i % S2) ^ j);
+        }
+    }
+};
+
+template <typename L>
+struct TransposeLayout {
+    static constexpr int s1 = L::s2;
+    static constexpr int s2 = L::s1;
+
+    static DevHost int index(int i, int j) {
+        return L::index(j, i);
+    }
+};
+
 template <typename L1, typename L2>
 struct ComposeLayout {
     static constexpr int s1 = L1::s1 * L2::s1;
     static constexpr int s2 = L1::s2 * L2::s2;
     
     static DevHost int index(int i, int j) {
-        return L1::index((i / L2::s1) * L2::s1, (j / L2::s2) * L2::s2) +
+        return L1::index((i / L2::s1), (j / L2::s2)) * (L2::s1 * L2::s2) +
                L2::index((i % L2::s1), (j % L2::s2));
     }
 };
+
+template <typename L, typename T>
+struct LayoutAccessor {
+    using AccT = T;
+    T* ptr;
+    static constexpr int s1 = L::s1;
+    static constexpr int s2 = L::s2;
+
+    DevHost LayoutAccessor(T* ptr) : ptr(ptr) {}
+
+    DevHost T* index(int i, int j) {
+        return ptr + L::index(i, j);
+    }
+};
+
+template <typename A>
+__device__ void print_smem(A& a) {
+    if (threadIdx.x == 0) {
+        repeat<A::s1, A::s2>([&](int i, int j) {
+            printf("%f ", (float) *a.index(i, j));
+            if (j == A::s2 - 1)
+                printf("\n");
+        });
+    }
+}
 
 template <int pack>
 __device__ void vec_load(const float* ptr, float* dest) {
@@ -179,39 +250,68 @@ __device__ void vec_load_nullable(const float* ptr, float* dest) {
     }
 }
 
-template <int D, typename Tail>
-struct SCons {
-    static constexpr int head = D;
-    using tail = Tail;
+
+template <typename T>
+struct RowAccessor {
+    using AccT = T;
+    T* ptr;
+    int a, b;
+
+    // RowAccessor(T* ptr, int a, int b) : ptr(ptr), a(a), b(b) {}
+
+    DevHost T* index(int i, int j) {
+        if (i < a && j < b) {
+            return ptr + (i * b + j);
+        }
+        return nullptr;
+    }
 };
 
-struct STail;
+template <typename L>
+struct OffsetAccessor {
+    using AccT = typename L::AccT;
+    L inner;
+    int offset_a, offset_b;
 
-template <int Dim, int... Dims>
-struct DimParams {
-    using value_t = SCons<Dim, typename DimParams<Dims...>::value_t>;
+    // OffsetAccessor(L inner, int offset_a, int offset_b) : inner(inner), offset_a(offset_a), offset_b(offset_b) {} 
+
+    DevHost AccT* index(int i, int j) {
+        return inner.index(i + offset_a, j + offset_b);
+    }
+
+    DevHost void set_offset(int a, int b) {
+        offset_a = a;
+        offset_b = b;
+    }
+
+
+    DevHost void inc_offset(int a, int b) {
+        offset_a += a;
+        offset_b += b;
+    }
 };
 
-template <int Dim>
-struct DimParams<Dim> {
-    using value_t = SCons<Dim, STail>;
-};
 
-template <typename F, typename DimInfo, typename... Indices>
-DevHost void inline repeat_impl(F& f, Indices... indices) {
-    if constexpr(std::is_same<DimInfo, STail>::value) {
-        f(indices...);
-    } else {
-        static constexpr int d = DimInfo::head;
-        #pragma unroll
-        for (int i = 0; i < d; ++i) {
-            repeat_impl<F, typename DimInfo::tail>(f, indices..., i);
+
+/// block level
+template <typename T>
+struct GMemTile {
+    T* ptr;
+    const int a;
+    const int b; // hopefully the compiler can detect some of these are identical for a and b tiles (cse)
+    int offset_a;
+    int offset_b;
+
+    __device__ T* index(int i, int j) {
+        int coord_a = i + offset_a;
+        int coord_b = j + offset_b;
+        if (coord_a < a && coord_b < b) {
+            return ptr + (coord_a * b + coord_b);
+        } else {
+            return nullptr;
         }
     }
-}
 
-template <int... Dims, typename F>
-DevHost void inline repeat(F&& f) {
-    using DimInfo = typename DimParams<Dims...>::value_t;
-    repeat_impl<F, DimInfo>(f);
-}
+    __device__ void inc_b(int i) { offset_b += i; }
+    __device__ void inc_a(int i) { offset_a += i; }
+};

@@ -86,6 +86,16 @@ target_compile_options(gemm PRIVATE ${OpenMP_CXX_FLAGS})
 target_link_libraries(gemm PRIVATE hip::device roc::rocblas ${OpenMP_CXX_FLAGS})
 
 
+add_executable(mfma_tools_test
+    ${CMAKE_SOURCE_DIR}/src/mma_gemm/mfma_tools_test.cpp
+)
+
+
+target_include_directories(mfma_tools_test PRIVATE include)
+target_compile_options(mfma_tools_test PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(mfma_tools_test PRIVATE hip::device ${OpenMP_CXX_FLAGS})
+
+
 build_this("utils.cpp" OFF)
 build_this("misc/helloworld.cpp" OFF)
 build_this("misc/saxpy.cpp" OFF)
