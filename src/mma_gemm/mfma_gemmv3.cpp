@@ -1,7 +1,6 @@
 #include "hip_utils.hpp"
 #include "mfma_tools.cpp"
 #include <hip/amd_detail/amd_hip_runtime.h>
-#include <hip/amd_detail/amd_warp_functions.h>
 #include <stdio.h>
 #include <tuple>
 
@@ -15,42 +14,36 @@ struct LdgBlockFrag {
     static constexpr int threads_per_row = BLOCK_B / VecLoad;
     static constexpr int stride_col = Warps * warp_size / threads_per_row;
     static constexpr int rep_m = BLOCK_A / stride_col;
-    static constexpr bool oversub = rep_m > BLOCK_A;
+    static constexpr bool oversub = stride_col > BLOCK_A;
     
-    float ldg_regs[rep_m][VecLoad];
+    float ldg_regs[Max<rep_m, 1>::value][VecLoad];
 
     template <typename GmemAcc>
     __device__ void copy_g2r(GmemAcc& gA) {
-        int row = threadIdx.x % (BLOCK_B * VecLoad);
-        int col = threadIdx.x / (BLOCK_B * VecLoad);
+        int row = threadIdx.x % threads_per_row;
+        int col = threadIdx.x / threads_per_row;
         if constexpr(oversub) {
             if (col < BLOCK_A) {
-                for (int i = 0; i < rep_m; ++i) {
-                    auto ptr = gA.index(i * stride_col + col, row * VecLoad);
-                    if (ptr != nullptr)
-                        vec_load<VecLoad>(ptr, &ldg_regs[i][0]);
-                }    
+                auto ptr = gA.index(col, row * VecLoad);
+                vec_load_nullable<VecLoad>(ptr, &ldg_regs[0][0]);
             }
         } else {
             for (int i = 0; i < rep_m; ++i) {
                 auto ptr = gA.index(i * stride_col + col, row * VecLoad);
-                if (ptr != nullptr)
-                    vec_load<VecLoad>(ptr, &ldg_regs[i][0]);
-                // ldg_regs[i][0] = *(gA.ptr + (i * stride_col + col) * gA.b + row);
-
+                // if is null, then fill with zeros, null represents out of bounds
+                vec_load_nullable<VecLoad>(ptr, &ldg_regs[i][0]);
             }
         }
     }
 
     template <typename SmemAcc>
     __device__ void copy_r2s(SmemAcc& sA) {
-        int row = threadIdx.x % (BLOCK_B * VecLoad);
-        int col = threadIdx.x / (BLOCK_B * VecLoad);
+        int row = threadIdx.x % threads_per_row;
+        int col = threadIdx.x / threads_per_row;
         if constexpr(oversub) {
             if (col < BLOCK_A) {
-                for (int i = 0; i < rep_m; ++i)
-                    for (int j = 0; j < VecLoad; ++j)
-                        *sA.index(i * stride_col + col, row * VecLoad + j) = ldg_regs[i][j];
+                for (int j = 0; j < VecLoad; ++j)
+                    *sA.index(col, row * VecLoad + j) = ldg_regs[0][j];
             }
         } else {
             for (int i = 0; i < rep_m; ++i)
@@ -96,7 +89,7 @@ struct MFMAF32_16x16F32_ATile {
     template <typename SmemAcc>
     __device__ void copy_s2r(SmemAcc& sA) {
         int lane = threadIdx.x % warp_size;
-        if constexpr(false && rep_k % 4 == 0) { // disable for now
+        if constexpr(rep_k % 4 == 0) {
             for (int i = 0; i < rep_k / 4; ++i) {
                 for (int j = 0; j < 4; ++j) {
                     regs[i * 4 + j] = *sA.index((lane % mma_m), (lane / mma_m + i * mma_k) * 4 + j);
@@ -126,7 +119,7 @@ struct MFMAF32_16x16F32_BTile {
     template <typename SmemAcc>
     __device__ void copy_s2r(SmemAcc& sB) {
         int lane = threadIdx.x % warp_size;
-        if constexpr(false && rep_k % 4 == 0) { // disable for now
+        if constexpr(rep_k % 4 == 0) {
             for (int i = 0; i < rep_k / 4; ++i) {
                 for (int j = 0; j < 4; ++j) {
                     regs[i * 4 + j] = *sB.index((lane / mma_n + i * mma_k) * 4 + j, lane % mma_n);
@@ -180,9 +173,6 @@ struct TileMMA<MFMAF32_16x16F32_ATile<BLOCK_K>, MFMAF32_16x16F32_BTile<BLOCK_K>,
             ctile.regs = __builtin_amdgcn_mfma_f32_16x16x4f32(
                 atile.regs[i], btile.regs[i], ctile.regs, 0, 0, 0
             );
-            repeat<4>([&](int i) {
-                printf("%f ")
-            });
         }
     }
 
@@ -270,7 +260,7 @@ struct GemmBlockT_V1 : GemmBlockT<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile
                     k * super::tile_k    
                 };
 
-                Atiles[im].copy_s2r(sA);
+                Atiles[im].copy_s2r(sA_acc);
             }
 
             // load n
@@ -281,7 +271,7 @@ struct GemmBlockT_V1 : GemmBlockT<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile
                     warp_n * super::tile_n * super::rep_n + in * super::tile_n
                 };
 
-                Btiles[in].copy_s2r(sB);
+                Btiles[in].copy_s2r(sB_acc);
             }
 
             // mma
@@ -307,15 +297,17 @@ struct Mfma_gemmv3 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
         RowAccessor<const float> gA_ = {this->a, this->m, this->k};
         OffsetAccessor<RowAccessor<const float>> gA = {gA_, offset_m, 0};
         RowAccessor<const float> gB_ = {this->b, this->k, this->n};
-        OffsetAccessor<RowAccessor<const float>> gB = {gB_, offset_m, 0};
+        OffsetAccessor<RowAccessor<const float>> gB = {gB_, 0, offset_n};
         // GMemTile<const float> gB = {this->b, this->k, this->n, 0, offset_n};
 
         static_assert(BLOCK_K % VecLoad == 0, "");
         static_assert(BLOCK_K % InnerK == 0, "");
-        // using SharedMemLayout = ComposeLayout<SwizzleLayout<BLOCK_M, BLOCK_K / VecLoad>, RowLayout<1, VecLoad>>;
-        using SharedMemLayoutA = RowLayout<BLOCK_M, BLOCK_K>;
+        using SharedMemLayoutA = ComposeLayout<SwizzleLayout<BLOCK_M, BLOCK_K / VecLoad>, RowLayout<1, VecLoad>>;
+        // using SharedMemLayoutA = RowLayout<BLOCK_M, BLOCK_K>;
         auto sA = LayoutAccessor<SharedMemLayoutA, float>(this->smem);
-        using SharedMemLayoutB = RowLayout<BLOCK_K, BLOCK_N>;
+
+        using SharedMemLayoutB = TransposeLayout<ComposeLayout<SwizzleLayout<BLOCK_N, BLOCK_K / VecLoad>, RowLayout<1, VecLoad>>>;
+        // using SharedMemLayoutB = RowLayout<BLOCK_K, BLOCK_N>;
         auto sB = LayoutAccessor<SharedMemLayoutB, float>(this->smem + BLOCK_M * BLOCK_K);
 
         using ATile = MFMAF32_16x16F32_ATile<InnerK>;

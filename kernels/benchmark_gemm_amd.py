@@ -5,6 +5,7 @@ from kernels.gemm_hidet import hidet_simt
 from kernels.composable_kernel_gemm import ck_gemm, ck_gemm_dl
 from kernels.gemm_mfmav1 import mfma_gemmv1
 from kernels.gemm_mfmav2 import mfma_gemmv2
+from kernels.gemm_mfmav3 import mfma_gemmv3
 from kernels.rocwmma_gemm import wmma_gemm
 from kernels.utils import Bench
 from triton.ops.matmul import matmul
@@ -31,13 +32,14 @@ if __name__ == '__main__':
     # bench.bench(benchmark_func(lambda a, b: hidet_simt(a, b, version=1)), 'simtv2')
     # bench.bench(benchmark_func(lambda a, b: hidet_simt(a, b, version=2)), 'simtv3')
     # bench.bench(benchmark_func(ck_gemm), "composable_kernel_mfma")
-    bench.bench(benchmark_func(ck_gemm_dl), "composable_kernel_simt")
+    # bench.bench(benchmark_func(ck_gemm_dl), "composable_kernel_simt")
     # bench.bench(benchmark_func(mfma_gemmv1), "mfma_v1")
     bench.bench(benchmark_func(lambda a, b: mfma_gemmv1(a, b, version=1)), "mfma_v2")
     bench.bench(benchmark_func(wmma_gemm), "wmma_v1")
-    bench.bench(benchmark_func(mfma_gemmv2), "wmma_mfma")
-    bench.bench(benchmark_func(lambda a, b: mfma_gemmv2(a, b, ver=1, pack_len=4)), "wmma_mfma_v1_pack4")
+    # bench.bench(benchmark_func(mfma_gemmv2), "wmma_mfma")
+    # bench.bench(benchmark_func(lambda a, b: mfma_gemmv2(a, b, ver=1, pack_len=4)), "wmma_mfma_v1_pack4")
     # bench.bench(benchmark_func(lambda a, b: mfma_gemmv2(a, b, ver=1, pack_len=2)), "wmma_mfma_v1_pack2")
+    bench.bench(benchmark_func(mfma_gemmv3), "mfma_v3")
     
     # bench.bench(benchmark_func(rocgemm), "gemm naive")
     # bench.bench(benchmark_func(matmul), "triton")
