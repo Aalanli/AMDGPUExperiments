@@ -5,6 +5,15 @@
 #include <tuple>
 
 
+constexpr int max_pack_size(const int n) {
+    if (n % 4 == 0) {
+        return 4;
+    } else if (n % 2 == 0) {
+        return 2;
+    }
+    return 1;
+}
+
 /// block level
 template <int BLOCK_A, int BLOCK_B, int Warps, int VecLoad>
 struct LdgBlockFrag {
@@ -74,7 +83,7 @@ struct LdgBlockFrag {
 };
 
 
-/// warp level
+/// warp level tiles
 template <int BLOCK_K>
 struct MFMAF32_16x16F32_ATile {
     static constexpr int tile_m = 16;
@@ -89,20 +98,29 @@ struct MFMAF32_16x16F32_ATile {
     template <typename SmemAcc>
     __device__ void copy_s2r(SmemAcc& sA) {
         int lane = threadIdx.x % warp_size;
-        if constexpr(rep_k % 4 == 0) {
-            for (int i = 0; i < rep_k / 4; ++i) {
-                for (int j = 0; j < 4; ++j) {
-                    regs[i * 4 + j] = *sA.index((lane % mma_m), (lane / mma_m + i * mma_k) * 4 + j);
-                }
-            }
-        } else {
-            for (int i = 0; i < rep_k; ++i) {
-                regs[i] = *sA.index((lane % mma_m), (lane / mma_m) + i * mma_k);
-            }
+        for (int i = 0; i < rep_k; ++i) {
+            regs[i] = *sA.index((lane % mma_m), (lane / mma_m) + i * mma_k);
         }
     }
 };
 
+/// I don't know if this type of packing can make a difference, since it seems
+/// that BLOCK_K selected rarely triggers pack_size > 1
+/// the pack size should also depend on the minimum contiguity of smem
+///   must be used with BTilev2
+template <int BLOCK_K>
+struct MFMAF32_16x16F32_ATilev2: MFMAF32_16x16F32_ATile<BLOCK_K> {
+    template <typename SmemAcc>
+    __device__ void copy_s2r(SmemAcc& sA) {
+        int lane = threadIdx.x % warp_size;
+        constexpr int pack_size = max_pack_size(this->rep_k);
+        for (int i = 0; i < this->rep_k / pack_size; ++i) {
+            for (int j = 0; j < pack_size; ++j) {
+                this->regs[i * pack_size + j] = *sA.index((lane % this->mma_m), (lane / this->mma_m + i * this->mma_k) * pack_size + j);
+            }
+        }
+    }
+};
 
 /// warp level
 template <int BLOCK_K>
@@ -119,22 +137,28 @@ struct MFMAF32_16x16F32_BTile {
     template <typename SmemAcc>
     __device__ void copy_s2r(SmemAcc& sB) {
         int lane = threadIdx.x % warp_size;
-        if constexpr(rep_k % 4 == 0) {
-            for (int i = 0; i < rep_k / 4; ++i) {
-                for (int j = 0; j < 4; ++j) {
-                    regs[i * 4 + j] = *sB.index((lane / mma_n + i * mma_k) * 4 + j, lane % mma_n);
-                }
-            }
-        } else {
-            for (int i = 0; i < rep_k; ++i) {
-                regs[i] = *sB.index((lane / mma_n) + i * mma_k, lane % mma_n);
-            }
+        for (int i = 0; i < rep_k; ++i) {
+            regs[i] = *sB.index((lane / mma_n) + i * mma_k, lane % mma_n);
         }
     }
 };
 
+template <int BLOCK_K>
+struct MFMAF32_16x16F32_BTilev2 : MFMAF32_16x16F32_BTile<BLOCK_K> {
+    template <typename SmemAcc>
+    __device__ void copy_s2r(SmemAcc& sB) {
+        int lane = threadIdx.x % warp_size;
+        constexpr int pack_size = max_pack_size(this->rep_k);
+        for (int i = 0; i < this->rep_k / pack_size; ++i) {
+            for (int j = 0; j < pack_size; ++j) {
+                this->regs[i * pack_size + j] = *sB.index((lane / this->mma_n + i * this->mma_k) * pack_size + j, lane % this->mma_n);
+            }
+        }
 
-/// warp level
+    }
+};
+
+
 struct MFMAF32_16x16F32_CTile {
     using float4 = __attribute__( (__vector_size__(4 * sizeof(float)) )) float;
     float4 regs;
@@ -156,9 +180,6 @@ struct MFMAF32_16x16F32_CTile {
         }
     }
 };
-
-
-/// warp level
 
 template <typename TileA, typename TileB, typename TileC>
 struct TileMMA {
@@ -187,7 +208,7 @@ template <int BLOCK_M,
           typename BTile, 
           typename CTile, 
           int Warps>
-struct GemmBlockT {
+struct BlockGemmBase {
     static constexpr int tile_m = ATile::tile_m;
     static constexpr int tile_k = ATile::tile_k;
     static_assert(ATile::tile_k == BTile::tile_k, "");    
@@ -239,8 +260,8 @@ template <int BLOCK_M,
           typename CTile, 
           typename MMA,
           int Warps>
-struct GemmBlockT_V1 : GemmBlockT<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps> {
-    using super = GemmBlockT<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps>;
+struct BlockGemmV1 : BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps> {
+    using super = BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps>;
 
     ATile Atiles[super::rep_m];
     BTile Btiles[super::rep_n];
@@ -282,8 +303,81 @@ struct GemmBlockT_V1 : GemmBlockT<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile
     }
 };
 
+/// pipeline loading from smem
+template <int BLOCK_M, 
+          int BLOCK_K, 
+          int BLOCK_N, 
+          typename ATile, 
+          typename BTile, 
+          typename CTile, 
+          typename MMA,
+          int Warps>
+struct BlockGemmV2 : BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps> {
+    using super = BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps>;
+
+    ATile Atiles[2][super::rep_m];
+    BTile Btiles[2][super::rep_n];
+
+    template <typename SMemA>
+    __device__ void load_atile(SMemA &sA, int idx, int k_offset) {
+        // lol who cares about DRY?
+        int warp = threadIdx.x / warp_size;
+        int warp_m = warp % super::warps_m;
+        int warp_n = warp / super::warps_m;
+
+        for (int im = 0; im < super::rep_m; im++) {
+            OffsetAccessor<SMemA> sA_acc = {
+                sA, 
+                warp_m * super::tile_m * super::rep_m + im * super::tile_m,
+                k_offset    
+            };
+
+            Atiles[idx][im].copy_s2r(sA_acc);
+        }
+    }
+
+    template <typename SMemB>
+    __device__ void load_btile(SMemB &sB, int idx, int k_offset) {
+        int warp = threadIdx.x / warp_size;
+        int warp_m = warp % super::warps_m;
+        int warp_n = warp / super::warps_m;
+
+        for (int in = 0; in < super::rep_n; in++) {
+            OffsetAccessor<SMemB> sB_acc = {
+                sB,
+                k_offset,
+                warp_n * super::tile_n * super::rep_n + in * super::tile_n
+            };
+
+            Btiles[idx][in].copy_s2r(sB_acc);
+        }
+    }
+
+    template <typename SMemA, typename SMemB>
+    __device__ void mma(SMemA &sA, SMemB &sB) {
+        int warp = threadIdx.x / warp_size;
+        int warp_m = warp % super::warps_m;
+        int warp_n = warp / super::warps_m;
+
+        load_atile(sA, 0, 0);
+        load_btile(sB, 0, 0);
+
+        #pragma unroll
+        for (int k = 0; k < super::rep_k; k++) {
+            if (k < super::rep_k - 1) {
+                load_atile(sA, (k + 1) % 2, (k + 1) * super::tile_k);
+                load_btile(sB, (k + 1) % 2, (k + 1) * super::tile_k);
+            }
+            repeat<super::rep_m, super::rep_n>([&](int i, int j) {
+                MMA::mma(Atiles[k % 2][i], Btiles[k % 2][j], this->Ctiles[i][j]);
+            });
+        }
+    }
+};
+
+
 template <int BLOCK_M, int BLOCK_K, int BLOCK_N, int VecLoad, int InnerK, int Warps>
-struct Mfma_gemmv3 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
+struct Mfma_gemmv3_ref : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
     using BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
 
     using super = BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
@@ -314,7 +408,7 @@ struct Mfma_gemmv3 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
         using BTile = MFMAF32_16x16F32_BTile<InnerK>;
         using CTile = MFMAF32_16x16F32_CTile;
         using Mma = TileMMA<ATile, BTile, CTile>;
-        using GemmInstance = GemmBlockT_V1<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Mma, Warps>;
+        using GemmInstance = BlockGemmV1<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Mma, Warps>;
 
         using LdgA = LdgBlockFrag<BLOCK_M, BLOCK_K, Warps, VecLoad>;
         using LdgB = LdgBlockFrag<BLOCK_K, BLOCK_N, Warps, VecLoad>;
@@ -347,6 +441,148 @@ struct Mfma_gemmv3 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
     }
 };
 
+
+template <int BLOCK_M, 
+          int BLOCK_K, 
+          int BLOCK_N, 
+          int VecLoad, 
+          int InnerK, 
+          int Warps,
+          typename SharedMemLayoutA,
+          typename SharedMemLayoutB,
+          typename GemmInstance>
+struct Mfma_gemmv3 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
+    using BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
+
+    using super = BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
+
+    __device__ void run() {
+        const int offset_m = blockIdx.x * BLOCK_M;
+        const int offset_n = blockIdx.y * BLOCK_N;
+
+        RowAccessor<const float> gA_ = {this->a, this->m, this->k};
+        OffsetAccessor<RowAccessor<const float>> gA = {gA_, offset_m, 0};
+        RowAccessor<const float> gB_ = {this->b, this->k, this->n};
+        OffsetAccessor<RowAccessor<const float>> gB = {gB_, 0, offset_n};
+
+        static_assert(BLOCK_K % VecLoad == 0, "");
+        static_assert(BLOCK_K % InnerK == 0, "");
+
+        static_assert(SharedMemLayoutA::s1 == BLOCK_M && SharedMemLayoutA::s2 == BLOCK_K, "");
+        auto sA = LayoutAccessor<SharedMemLayoutA, float>(this->smem);
+
+        static_assert(SharedMemLayoutB::s1 == BLOCK_K && SharedMemLayoutB::s2 == BLOCK_N, "");
+        auto sB = LayoutAccessor<SharedMemLayoutB, float>(this->smem + BLOCK_M * BLOCK_K);
+
+        static_assert(
+            GemmInstance::block_m == BLOCK_M && 
+            GemmInstance::block_n == BLOCK_N && 
+            GemmInstance::block_k == BLOCK_K, ""
+        );
+
+        using LdgA = LdgBlockFrag<BLOCK_M, BLOCK_K, Warps, VecLoad>;
+        using LdgB = LdgBlockFrag<BLOCK_K, BLOCK_N, Warps, VecLoad>;
+        LdgA ldg_a;
+        LdgB ldg_b;
+        GemmInstance block_gemm;
+        block_gemm.fill_c(0.0f);
+
+        for (int k = 0; k < cdiv(this->k, BLOCK_K); ++k) {
+            ldg_a.copy_g2r(gA);
+            ldg_b.copy_g2r(gB);
+            ldg_a.copy_r2s(sA);
+            ldg_b.copy_r2s(sB);
+            __syncthreads();
+            block_gemm.mma(sA, sB);
+            __syncthreads();
+            gA.inc_offset(0, BLOCK_K);
+            gB.inc_offset(BLOCK_K, 0);
+
+        }
+        RowAccessor<float> gC_ = {this->c, this->m, this->n};
+        OffsetAccessor<RowAccessor<float>> gC = {gC_, offset_m, offset_n};
+        block_gemm.copy_r2g(gC);
+    }
+};
+
+template <int BLOCK_M, 
+          int BLOCK_K, 
+          int BLOCK_N, 
+          int VecLoad, 
+          int InnerK, 
+          int Warps,
+          typename SharedMemLayoutA,
+          typename SharedMemLayoutB,
+          typename GemmInstance>
+struct Mfma_gemmv3_Pipeline : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
+    using BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
+
+    using super = BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
+
+    static constexpr int used_smem_bytes() {
+        return 2 * (BLOCK_M + BLOCK_N) * BLOCK_K * sizeof(float);
+    }
+
+    __device__ void run() {
+        const int offset_m = blockIdx.x * BLOCK_M;
+        const int offset_n = blockIdx.y * BLOCK_N;
+
+        RowAccessor<const float> gA_ = {this->a, this->m, this->k};
+        OffsetAccessor<RowAccessor<const float>> gA = {gA_, offset_m, 0};
+        RowAccessor<const float> gB_ = {this->b, this->k, this->n};
+        OffsetAccessor<RowAccessor<const float>> gB = {gB_, 0, offset_n};
+
+        static_assert(BLOCK_K % VecLoad == 0, "");
+        static_assert(BLOCK_K % InnerK == 0, "");
+
+        static_assert(SharedMemLayoutA::s1 == BLOCK_M && SharedMemLayoutA::s2 == BLOCK_K, "");
+        LayoutAccessor<SharedMemLayoutA, float> sA[2] = {this->smem, this->smem + BLOCK_M * BLOCK_K};
+
+        static_assert(SharedMemLayoutB::s1 == BLOCK_K && SharedMemLayoutB::s2 == BLOCK_N, "");
+        LayoutAccessor<SharedMemLayoutB, float> sB[2] = {this->smem + 2 * BLOCK_M * BLOCK_K, this->smem + 2 * BLOCK_M * BLOCK_K + BLOCK_N * BLOCK_K};
+
+        static_assert(
+            GemmInstance::block_m == BLOCK_M && 
+            GemmInstance::block_n == BLOCK_N && 
+            GemmInstance::block_k == BLOCK_K, ""
+        );
+
+        using LdgA = LdgBlockFrag<BLOCK_M, BLOCK_K, Warps, VecLoad>;
+        using LdgB = LdgBlockFrag<BLOCK_K, BLOCK_N, Warps, VecLoad>;
+        LdgA ldg_a;
+        LdgB ldg_b;
+        GemmInstance block_gemm;
+        block_gemm.fill_c(0.0f);
+        ldg_a.copy_g2r(gA);
+        ldg_b.copy_g2r(gB);
+        ldg_a.copy_r2s(sA[0]);
+        ldg_b.copy_r2s(sB[0]);
+        gA.inc_offset(0, BLOCK_K);
+        gB.inc_offset(BLOCK_K, 0);
+        __syncthreads();
+
+        const int k_iter = cdiv(this->k, BLOCK_K) - 1;
+        for (int k = 0; k < k_iter; ++k) {
+            ldg_a.copy_g2r(gA);
+            ldg_b.copy_g2r(gB);
+            ldg_a.copy_r2s(sA[(k + 1) % 2]);
+            ldg_b.copy_r2s(sB[(k + 1) % 2]);
+
+            block_gemm.mma(sA[k % 2], sB[k % 2]);
+            gA.inc_offset(0, BLOCK_K);
+            gB.inc_offset(BLOCK_K, 0);
+            __syncthreads();
+        }
+        block_gemm.mma(sA[k_iter % 2], sB[k_iter % 2]);
+
+        RowAccessor<float> gC_ = {this->c, this->m, this->n};
+        OffsetAccessor<RowAccessor<float>> gC = {gC_, offset_m, offset_n};
+        block_gemm.copy_r2g(gC);
+    }
+};
+
+
+
 #include "launch_defs.hpp"
 
 #ifndef _VecLoad
@@ -360,9 +596,65 @@ struct Mfma_gemmv3 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
 
 EXPORT bool LAUNCH_NAME(
     const float* A, const float* B, float* C,
-    int M, int K, int N
+    int M, int K, int N, int ver
 ) {
-    using GemmInstance = Mfma_gemmv3<_BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps>;
-    return run_kernel<GemmInstance>(A, B, C, M, K, N);
+    using SharedMemLayoutA = ComposeLayout<SwizzleLayout<_BLOCK_M, _BLOCK_K / _VecLoad>, RowLayout<1, _VecLoad>>;
+    using SharedMemLayoutB = TransposeLayout<ComposeLayout<SwizzleLayout<_BLOCK_N, _BLOCK_K / _VecLoad>, RowLayout<1, _VecLoad>>>;
+    if (ver == 0) {
+        using ATile = MFMAF32_16x16F32_ATile<_InnerK>;
+        using BTile = MFMAF32_16x16F32_BTile<_InnerK>;
+        using CTile = MFMAF32_16x16F32_CTile;
+        using Mma = TileMMA<ATile, BTile, CTile>;
+        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
 
+        using Gemm = Mfma_gemmv3<_BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
+        return run_kernel<Gemm>(A, B, C, M, K, N);
+    }
+    if (ver == 1) {
+        // pack inner warp tile loading to perhaps vectorize loads from smem
+        using ATile = MFMAF32_16x16F32_ATilev2<_InnerK>;
+        using BTile = MFMAF32_16x16F32_BTilev2<_InnerK>;
+        using CTile = MFMAF32_16x16F32_CTile;
+        using Mma = TileMMA<ATile, BTile, CTile>;
+        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+
+        using Gemm = Mfma_gemmv3<_BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
+        return run_kernel<Gemm>(A, B, C, M, K, N);
+    }
+    if (ver == 2) {
+        // pipeline inner shared to register loop
+        using ATile = MFMAF32_16x16F32_ATile<_InnerK>;
+        using BTile = MFMAF32_16x16F32_BTile<_InnerK>;
+        using CTile = MFMAF32_16x16F32_CTile;
+        using Mma = TileMMA<ATile, BTile, CTile>;
+        using GemmInstance = BlockGemmV2<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+
+        using Gemm = Mfma_gemmv3<_BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
+        return run_kernel<Gemm>(A, B, C, M, K, N);
+    }
+    if (ver == 3) {
+        // pipeline outer global to shared loop
+        using ATile = MFMAF32_16x16F32_ATile<_InnerK>;
+        using BTile = MFMAF32_16x16F32_BTile<_InnerK>;
+        using CTile = MFMAF32_16x16F32_CTile;
+        using Mma = TileMMA<ATile, BTile, CTile>;
+        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+
+        using Gemm = Mfma_gemmv3_Pipeline<_BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
+        return run_kernel<Gemm>(A, B, C, M, K, N);
+    }
+    if (ver == 4) {
+        // pipeline both inner and outer loops
+        using ATile = MFMAF32_16x16F32_ATile<_InnerK>;
+        using BTile = MFMAF32_16x16F32_BTile<_InnerK>;
+        using CTile = MFMAF32_16x16F32_CTile;
+        using Mma = TileMMA<ATile, BTile, CTile>;
+        using GemmInstance = BlockGemmV2<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+
+        using Gemm = Mfma_gemmv3_Pipeline<_BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
+        return run_kernel<Gemm>(A, B, C, M, K, N);
+    }
+
+    printf("ver %d does not exist\n", ver);
+    return false;
 }
