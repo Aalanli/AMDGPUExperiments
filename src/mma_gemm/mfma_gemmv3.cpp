@@ -6,7 +6,9 @@
 
 
 constexpr int max_pack_size(const int n) {
-    if (n % 4 == 0) {
+    if (n <= 0) {
+        return 1;
+    } else if (n % 4 == 0) {
         return 4;
     } else if (n % 2 == 0) {
         return 2;
@@ -110,13 +112,14 @@ struct MFMAF32_16x16F32_ATile {
 ///   must be used with BTilev2
 template <int BLOCK_K>
 struct MFMAF32_16x16F32_ATilev2: MFMAF32_16x16F32_ATile<BLOCK_K> {
+    using super = MFMAF32_16x16F32_ATile<BLOCK_K>;
     template <typename SmemAcc>
     __device__ void copy_s2r(SmemAcc& sA) {
         int lane = threadIdx.x % warp_size;
-        constexpr int pack_size = max_pack_size(this->rep_k);
-        for (int i = 0; i < this->rep_k / pack_size; ++i) {
+        constexpr int pack_size = max_pack_size(super::rep_k);
+        for (int i = 0; i < super::rep_k / pack_size; ++i) {
             for (int j = 0; j < pack_size; ++j) {
-                this->regs[i * pack_size + j] = *sA.index((lane % this->mma_m), (lane / this->mma_m + i * this->mma_k) * pack_size + j);
+                this->regs[i * pack_size + j] = *sA.index((lane % super::mma_m), (lane / super::mma_m + i * super::mma_k) * pack_size + j);
             }
         }
     }
@@ -145,16 +148,16 @@ struct MFMAF32_16x16F32_BTile {
 
 template <int BLOCK_K>
 struct MFMAF32_16x16F32_BTilev2 : MFMAF32_16x16F32_BTile<BLOCK_K> {
+    using super = MFMAF32_16x16F32_BTile<BLOCK_K>;
     template <typename SmemAcc>
     __device__ void copy_s2r(SmemAcc& sB) {
         int lane = threadIdx.x % warp_size;
-        constexpr int pack_size = max_pack_size(this->rep_k);
-        for (int i = 0; i < this->rep_k / pack_size; ++i) {
+        constexpr int pack_size = max_pack_size(super::rep_k);
+        for (int i = 0; i < super::rep_k / pack_size; ++i) {
             for (int j = 0; j < pack_size; ++j) {
-                this->regs[i * pack_size + j] = *sB.index((lane / this->mma_n + i * this->mma_k) * pack_size + j, lane % this->mma_n);
+                this->regs[i * pack_size + j] = *sB.index((lane / super::mma_n + i * super::mma_k) * pack_size + j, lane % super::mma_n);
             }
         }
-
     }
 };
 
@@ -183,7 +186,9 @@ struct MFMAF32_16x16F32_CTile {
 
 template <typename TileA, typename TileB, typename TileC>
 struct TileMMA {
-    __device__ static void mma(TileA& a, TileB& b, TileC& c) {}
+    __device__ static void mma(TileA& a, TileB& b, TileC& c) {
+        assert(false && "mma tile not implemented");
+    }
 };
 
 template <int BLOCK_K>
@@ -196,7 +201,20 @@ struct TileMMA<MFMAF32_16x16F32_ATile<BLOCK_K>, MFMAF32_16x16F32_BTile<BLOCK_K>,
             );
         }
     }
+};
 
+
+
+template <int BLOCK_K>
+struct TileMMA<MFMAF32_16x16F32_ATilev2<BLOCK_K>, MFMAF32_16x16F32_BTilev2<BLOCK_K>, MFMAF32_16x16F32_CTile> {
+    __device__ static void mma(MFMAF32_16x16F32_ATile<BLOCK_K> &atile, MFMAF32_16x16F32_BTile<BLOCK_K> &btile, MFMAF32_16x16F32_CTile &ctile) {
+        constexpr int rep_k = MFMAF32_16x16F32_ATile<BLOCK_K>::rep_k;
+        for (int i = 0; i < rep_k; ++i) {
+            ctile.regs = __builtin_amdgcn_mfma_f32_16x16x4f32(
+                atile.regs[i], btile.regs[i], ctile.regs, 0, 0, 0
+            );
+        }
+    }
 };
 
 

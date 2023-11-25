@@ -98,6 +98,18 @@ __global__ __launch_bounds__(GemmInstance::nthreads()) void gemm_kernel(
     inst.run();
 }
 
+template <typename GemmInstance>
+__global__ __launch_bounds__(GemmInstance::nthreads()) void gemm_kernel_dyn_smem(
+    const float * __restrict__ A,
+    const float * __restrict__ B,
+    float * __restrict__ C,
+    int M, int K, int N
+) {
+    extern __shared__ char smem[];
+    auto inst = GemmInstance((float*) smem, A, B, C, M, K, N);
+    inst.run();
+}
+
 
 template <typename GemmInstance>
 bool run_kernel(
@@ -114,6 +126,23 @@ bool run_kernel(
     }
     return true;
 }
+
+template <typename GemmInstance>
+bool run_kernel_dyn_smem(
+    const float * __restrict__ A,
+    const float * __restrict__ B,
+    float * __restrict__ C,
+    int M, int K, int N
+) {
+    hipLaunchKernelGGL(gemm_kernel_dyn_smem<GemmInstance>, GemmInstance::blocks(M, K, N), GemmInstance::threads(), GemmInstance::used_smem_bytes(), 0, A, B, C, M, K, N);
+    auto error = hipGetLastError();
+    if (error != hipSuccess) {
+        printf("Error: %s\n", hipGetErrorString(error));
+        return false;
+    }
+    return true;
+}
+
 
 constexpr int next_power_of_2(int n) {
     n -= 1;
