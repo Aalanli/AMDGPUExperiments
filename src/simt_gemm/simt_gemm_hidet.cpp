@@ -42,7 +42,7 @@ constexpr int block_m = WarpOuterM * BlockWarpsM * WarpMidM * WarpInnerM;
 constexpr int block_n = WarpOuterN * BlockWarpsN * WarpMidN * WarpInnerN;
 constexpr int block_k = BlockWarpsK;
 constexpr int nthreads = WarpMidM * WarpMidN * BlockWarpsM * BlockWarpsN;
-constexpr int warp_size = WarpMidM * WarpMidN;
+// constexpr int warp_size = WarpMidM * WarpMidN;
 static_assert(block_k % 2 == 0, "");
 static_assert(block_k <= warp_size, "");
 static_assert(warp_size % block_k == 0, "");

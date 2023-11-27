@@ -21,7 +21,7 @@
 #define REP_K 1
 #endif
 
-constexpr int warp_size = 64; // since this is only on amd platform anyways
+// constexpr int warp_size = 64; // since this is only on amd platform anyways
 constexpr int mma_m = 16;
 constexpr int mma_n = 16;
 constexpr int mma_k = 4;
