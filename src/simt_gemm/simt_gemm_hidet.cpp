@@ -42,10 +42,10 @@ constexpr int block_m = WarpOuterM * BlockWarpsM * WarpMidM * WarpInnerM;
 constexpr int block_n = WarpOuterN * BlockWarpsN * WarpMidN * WarpInnerN;
 constexpr int block_k = BlockWarpsK;
 constexpr int nthreads = WarpMidM * WarpMidN * BlockWarpsM * BlockWarpsN;
-// constexpr int warp_size = WarpMidM * WarpMidN;
+constexpr int _warp_size = WarpMidM * WarpMidN;
 static_assert(block_k % 2 == 0, "");
-static_assert(block_k <= warp_size, "");
-static_assert(warp_size % block_k == 0, "");
+static_assert(block_k <= _warp_size, "");
+static_assert(_warp_size % block_k == 0, "");
 static_assert(block_m % (nthreads / block_k) == 0, "");
 static_assert(block_n % (nthreads / block_k) == 0, "");
 
@@ -73,8 +73,8 @@ __global__ __launch_bounds__(nthreads) void simt_gemm_hidet_kernel(
     __shared__ float sA[2][block_k][block_m];
     __shared__ float sB[2][block_k][block_n];
 
-    const int warp_idx = threadIdx.x / warp_size;
-    const int warp_lane = threadIdx.x % warp_size;
+    const int warp_idx = threadIdx.x / _warp_size;
+    const int warp_lane = threadIdx.x % _warp_size;
     const int warp_m = warp_idx / BlockWarpsN;
     const int warp_n = warp_idx % BlockWarpsN;
     const int tm = warp_lane / WarpMidN;
@@ -227,8 +227,8 @@ __global__ __launch_bounds__(nthreads) void simt_gemm_hidet_kernelv2(
     __shared__ float sA[2][block_k][block_m];
     __shared__ float sB[2][block_k][block_n];
 
-    const int warp_idx = threadIdx.x / warp_size;
-    const int warp_lane = threadIdx.x % warp_size;
+    const int warp_idx = threadIdx.x / _warp_size;
+    const int warp_lane = threadIdx.x % _warp_size;
     const int warp_m = warp_idx / BlockWarpsN;
     const int warp_n = warp_idx % BlockWarpsN;
     const int tm = warp_lane / WarpMidN;
@@ -376,8 +376,8 @@ __global__ __launch_bounds__(nthreads) void simt_gemm_hidet_kernelv3(
     __shared__ float sA[2][block_k][block_m];
     __shared__ float sB[2][block_k][block_n];
 
-    const int warp_idx = threadIdx.x / warp_size;
-    const int warp_lane = threadIdx.x % warp_size;
+    const int warp_idx = threadIdx.x / _warp_size;
+    const int warp_lane = threadIdx.x % _warp_size;
     const int warp_m = warp_idx / BlockWarpsN;
     const int warp_n = warp_idx % BlockWarpsN;
     const int tm = warp_lane / WarpMidN;
@@ -525,8 +525,8 @@ __global__ __launch_bounds__(nthreads) void simt_gemm_hidet_kernelv4(
     __shared__ float sA[2][block_k][block_m];
     __shared__ float sB[2][block_k][block_n];
 
-    const int warp_idx = threadIdx.x / warp_size;
-    const int warp_lane = threadIdx.x % warp_size;
+    const int warp_idx = threadIdx.x / _warp_size;
+    const int warp_lane = threadIdx.x % _warp_size;
     const int warp_m = warp_idx / BlockWarpsN;
     const int warp_n = warp_idx % BlockWarpsN;
     const int tm = warp_lane / WarpMidN;
@@ -654,7 +654,7 @@ __global__ __launch_bounds__(nthreads) void simt_gemm_hidet_kernelv4(
 EXPORT bool LAUNCH_NAME(float* a, float* b, float* c, int m, int k, int n, int version) {
     hipDeviceProp_t prop;
     hipGetDeviceProperties(&prop, 0);
-    int warp_size = prop.warpSize;
+    int _warp_size = prop.warpSize;
     int smem = prop.sharedMemPerBlock;
     int regs = prop.regsPerBlock;
 
