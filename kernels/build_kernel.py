@@ -1,7 +1,8 @@
 # %%
+import copy
 from dataclasses import dataclass
 import multiprocessing
-from typing import List, Dict, Any, Optional, Sequence, Iterable, Callable, Set
+from typing import List, Dict, Tuple, Any, Optional, Sequence, Iterable, Callable, Set
 from tqdm import tqdm
 import hashlib
 import os
@@ -11,6 +12,16 @@ import subprocess
 import ctypes
 import torch
 
+def format_error(result):
+    if result.returncode:
+        message = ""
+        if result.stdout:
+            message += result.stdout.decode().strip() + '\n'
+        if result.stderr:
+            message += result.stderr.decode().strip()
+        return message
+    else:
+        return None
 
 def build(ignore_error, source, out_path, amd=True, **kwargs):
     # print(f'Building {source} to {out_path}')
@@ -23,8 +34,11 @@ def build(ignore_error, source, out_path, amd=True, **kwargs):
     if amd:
         assert file_ext == '.cpp', f'AMD kernel must be a cpp file, got {file_ext}'
         args.append('--offload-arch=gfx90a')
-        subprocess.run(['hipcc', '-shared', source] + args + ['-o', out_path, '-I', 'include/'], check=True, shell=False, stderr=std_err)
-        # subprocess.run(['hipcc', '-shared', '-o', out_path, out_path + '_'], check=True, shell=False)
+        result = subprocess.run(['hipcc', '-shared', source] + args + ['-o', out_path, '-I', 'include/'], 
+                       check=False, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        msg = format_error(result)
+        if msg is not None:
+            raise Exception(msg)                
         return
     
     args = ' '.join(args[:-1])    
@@ -34,14 +48,14 @@ def build(ignore_error, source, out_path, amd=True, **kwargs):
         subprocess.run(['hipcc', '-O3', '-c', source, '--compiler-options', args, '-o', out_path, '-I', 'include/'], check=True, env=env, shell=False, stdout=subprocess.DEVNULL, stderr=std_err)
         subprocess.run(['hipcc', '-shared', '-o', out_path, out_path], check=True, shell=False)
     elif file_ext == '.cu':
-        result = subprocess.run(['nvcc', '-O3', '--compiler-options', args + ' -m64', '-ftz=true', '-prec-div=false', '-lineinfo', '-I', 'include', '-o', out_path, '--shared', source], check=False, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        if result.returncode:
-            message = ""
-            if result.stdout:
-                message += result.stdout.decode().strip() + '\n'
-            if result.stderr:
-                message += result.stderr.decode().strip()
-            raise Exception(message)
+        result = subprocess.run([
+            'nvcc', '-O3', '--compiler-options', args + ' -m64', '-ftz=true', '-prec-div=false', 
+            '-lineinfo', '-I', 'include', '-o', out_path, '--shared', source], 
+        check=False, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        msg = format_error(result)
+        if msg is not None:
+            raise Exception(msg)
+        
     else:
         raise RuntimeError(f'Unknown file extension {file_ext}')
 
@@ -163,13 +177,13 @@ class BuildConfig:
 def build_worker(config: BuildConfig, ignore_errors=False):
     if not ignore_errors:
         build(False, config.source_file, config.out_path, amd=config.amd, **config.compile_params)
-        return True
+        return True, ''
     try:
         build(True, config.source_file, config.out_path, amd=config.amd, **config.compile_params)
     except Exception as e:
         print(f'Failed to compile {config.compile_params}: \ndue to {e}')      
-        return False
-    return True  
+        return False, str(e)
+    return True, ''
 
 
 class JobQueue:
@@ -218,6 +232,8 @@ class KernelHandler:
             compile_configs: List[KernelConfig], 
             keys: List[str], 
             platform: str = 'amd',
+            name: Optional[str] = None,
+            keep: int = 3,
             compile_params: Optional[Dict[str, Any]] = None,
             disable_benchmark: bool = False,
             parallel_compile: bool = True,
@@ -230,27 +246,55 @@ class KernelHandler:
         2. The launch function must return a bool indicating whether the kernel launch succeeded
             True: kernel launch succeeded
             False: kernel launch failed
-        """ 
+        
+        Cache Directory Structure:
+        CACHE_DIR
+          NAME
+            1
+              kernels (a folder containing .so files)
+              meta_data.json (a file containing the best kernel names)
+              kernel_times.json (a file containing kernel timings on a runtime shape)
+              src_file.cpp (the source file)
+        """
+
         assert platform in ['amd', 'nvidia']
         self.disable_benchmark = disable_benchmark
         self.platform = platform
-        # CACHE_DIR
-        # |_ hash(source_file)  -> self.dir_path
-        # |__ fmt(config[0]).so -> config[0].so_name()
-        # |__ fmt(config[1]).so
-        # |__ ...
-        # |__ fmt(config[n]).so
-        # |__ source_file
-        # |__ meta_data.json
-        # |__ failed.json
+
         self.source_file = source_file
         assert os.path.exists(self.source_file) and os.path.isfile(self.source_file), f'File {self.source_file} does not exist'
         file_name = os.path.basename(self.source_file)
         file_name_no_ext = os.path.splitext(file_name)[0]
+        dir_name = file_name_no_ext if name is None else name
+
         with open(self.source_file, 'r') as f:
             self.source = f.read()
-        folderhash = hashlib.sha256(self.source.encode('utf-8')).hexdigest()
-        dir_path = os.path.join(CACHE_DIR, file_name_no_ext + '_' + folderhash[:16])
+        
+        super_dir_path = os.path.join(CACHE_DIR, dir_name)
+        if not os.path.exists(super_dir_path):
+            os.makedirs(super_dir_path)
+
+        # scan through the cached dirs to see if one matches the current src file
+        sub_versions = [int(s) for s in os.listdir(super_dir_path)]
+        sub_versions.sort()
+        dir_path = None
+        for i in sub_versions:
+            src_file = os.path.join(super_dir_path, str(i), file_name)
+            if os.path.exists(src_file) and os.path.isfile(src_file):
+                with open(src_file, 'r') as f:
+                    new_src = f.read()
+                    if new_src == self.source:
+                        dir_path = os.path.join(super_dir_path, str(i))
+                        break
+        if dir_path is None:
+            dir_path = os.path.join(super_dir_path, str(1 if len(sub_versions) == 0 else sub_versions[-1] + 1))
+
+        # remove past versions
+        if len(sub_versions) > keep and keep > 1:
+            rm_path = os.path.join(super_dir_path, str(sub_versions[0]))
+            if rm_path != dir_path:
+                shutil.rmtree(rm_path)
+
         kernels_path = os.path.join(dir_path, "kernels")
         self.dir_path = dir_path
 
@@ -261,19 +305,23 @@ class KernelHandler:
             os.makedirs(dir_path)
         if not os.path.exists(kernels_path):
             os.makedirs(kernels_path)
-    
+        shutil.copy(self.source_file, dir_path)
+        self.compile_file_src = os.path.join(dir_path, file_name)
 
         self.so_name2_config: Dict[str, KernelConfig] = {
             config.so_name(): config for config in compile_configs
         }
         self.failed_to_compile: Set[str] = set()
-        if os.path.exists(os.path.join(dir_path, 'failed.json')):
+        # reset failed json if parallel is false or ignore errors is false
+        if os.path.exists(os.path.join(dir_path, 'failed.json')) and parallel_compile and ignore_compile_errors:
             with open(os.path.join(dir_path, 'failed.json'), 'r') as f:
                 self.failed_to_compile: Set[str] = set(json.load(f))
         need_to_compile = list(filter(
             lambda x: not os.path.exists(os.path.join(kernels_path, x)) and x not in self.failed_to_compile, self.so_name2_config.keys()
         ))
         extra_params = {k: str(v) for k, v in compile_params.items()} if compile_params is not None else {}
+        failed_reasons = ''
+
         if len(need_to_compile) > 0:
             compile_items: List[BuildConfig] = []
             for so_name in need_to_compile:
@@ -293,21 +341,26 @@ class KernelHandler:
                 ))
             
             if parallel_compile:
-                res = list(tqdm(parallel_imap(lambda x: build_worker(x, ignore_compile_errors), compile_items), total=len(need_to_compile), desc='Compiling kernels'))
+                res: List[Tuple[bool, str]] = list(tqdm(parallel_imap(lambda x: build_worker(x, ignore_compile_errors), compile_items), total=len(need_to_compile), desc='Compiling kernels'))
             else:
-                res = [build_worker(config, ignore_compile_errors) for config in compile_items]
+                res: List[Tuple[bool, str]] = [build_worker(config, ignore_compile_errors) for config in compile_items]
             
             successfully_compiled = 0
             for i in range(len(res)):
-                if not res[i]: # failed to compile
+                if not res[i][0]: # failed to compile
                     self.failed_to_compile.add(need_to_compile[i])     
-                if res[i] and need_to_compile[i] in self.failed_to_compile:
+                    failed_reasons += need_to_compile[i] + '\n' + res[i][1] + '\n'
+
+                if res[i][0] and need_to_compile[i] in self.failed_to_compile:
                     self.failed_to_compile.remove(need_to_compile[i])
                     successfully_compiled += 1
 
         if ignore_compile_errors:
             with open(os.path.join(dir_path, 'failed.json'), 'w') as f:
                 json.dump(list(self.failed_to_compile), f)
+            with open(os.path.join(dir_path, 'failed_reason.txt'), 'w') as f:
+                f.write(failed_reasons)
+            
 
         # so_name -> so_launch_func
         self.launch_funcs = {}
@@ -322,7 +375,6 @@ class KernelHandler:
             self.launch_funcs[so_name] = launch_func
         if len(self.launch_funcs) == 0:
             raise RuntimeError(f'No kernels compiled for {self.source_file}')
-        shutil.copy(self.source_file, dir_path)
 
         # map from runtime-key to best so_name
         self.kernel_map: Dict[str, str] = {}
@@ -334,6 +386,37 @@ class KernelHandler:
             with open(os.path.join(dir_path, 'kernel_times.json'), 'r') as f:
                 self.kernel_times = json.load(f)
     
+    def kernel_avg_time(self) -> List[Tuple[str, float]]:
+        kernel_times = {}
+        for _runtime_key, variants in self.kernel_times.items():
+            for so_name, time in variants.items():
+                if so_name in kernel_times:
+                    kernel_times[so_name].append(time)
+                else:
+                    kernel_times[so_name] = [time]
+        kernel_avg_time = [(k, sum(v) / len(v)) for k, v in kernel_times.items()]
+        kernel_avg_time.sort(key=lambda x: x[1])
+        return kernel_avg_time
+
+    def filtered_kernel_times(self, top_k: int) -> Dict[str, Dict[str, float]]:
+        kernel_avg_time = self.kernel_avg_time()
+        filtered_kernel_times = copy.deepcopy(self.kernel_times)
+        for bad_kernel, _ in kernel_avg_time[top_k:]:
+            # declutter kernel times 
+            for rtk in filtered_kernel_times:
+                for so_name in filtered_kernel_times[rtk]:
+                    if so_name == bad_kernel:
+                        filtered_kernel_times[rtk].pop(so_name)
+                        break
+        return filtered_kernel_times
+    
+    def prune_kernels(self, top_k: int):
+        kernel_avg_time = self.kernel_avg_time()
+        for bad_kernel, _ in kernel_avg_time[top_k:]:
+            self.launch_funcs.pop(bad_kernel)
+            if bad_kernel in self.kernel_map.values():
+                raise RuntimeError(f"removed top kernel {bad_kernel}, but its the top for a runtime shape")
+        
     def runtime_key(self, runtime_args: Dict[str, Any]) -> str:
         name = ''
         for k in self.keys:
@@ -344,15 +427,20 @@ class KernelHandler:
     def dump_meta(self):
         with open(os.path.join(self.dir_path, 'meta_data.json'), 'w') as f:
             json.dump(self.kernel_map, f, indent=2)
-        ordered_timings = []
-        for k, v in self.kernel_times.items():
-            v = list(v.items())
-            v.sort(key=lambda x: x[1])
-            ordered_timings.append((k, v))
-        ordered_timings.sort(key=lambda x: x[0])
-        ordered_timings = {k: {k1: v1 for k1, v1 in v} for k, v in ordered_timings}
+        def order_timings(kernel_times):
+            ordered_timings = []
+            for k, v in kernel_times.items():
+                v = list(v.items())
+                v.sort(key=lambda x: x[1])
+                ordered_timings.append((k, v))
+            ordered_timings.sort(key=lambda x: x[0])
+            ordered_timings = {k: {k1: v1 for k1, v1 in v} for k, v in ordered_timings}
+            return ordered_timings
+        
         with open(os.path.join(self.dir_path, 'kernel_times.json'), 'w') as f:
-            json.dump(ordered_timings, f, indent=2)
+            json.dump(order_timings(self.kernel_times), f, indent=2)
+        with open(os.path.join(self.dir_path, 'kernel_times_pruned.json'), 'w') as f:            
+            json.dump(order_timings(self.filtered_kernel_times(20)), f, indent=2)
     
     def __call__(self, *args, **kwargs):
         runtime_args = kwargs

@@ -15,11 +15,15 @@ b = torch.empty([2048, 2048], device='cuda')
 
 c = a @ b
 # hidet_simt(a, b, version=1)
-# ck_gemm(a, b, 14)
+ck_gemm(a, b, 22)
 # ck_gemm_dl(a, b)
 # mfma_gemmv1(a, b, version=1)
 # mfma_gemmv2(a, b)
-mfma_gemmv2(a, b, ver=1, pack_len=4)
-mfma_gemmv3(a, b)
+# mfma_gemmv2(a, b, ver=1, pack_len=4)
+mfma_gemmv3(a, b, ver=2)
+mfma_gemmv3(a, b, ver=4)
+mfma_gemmv3(a, b, ver=5)
+# mfma_gemmv3(a, b, ver=6)
+
 # wmma_gemm(a, b)
 # matmul(a, b)

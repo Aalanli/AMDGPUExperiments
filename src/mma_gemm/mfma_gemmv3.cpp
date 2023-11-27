@@ -161,6 +161,26 @@ struct MFMAF32_16x16F32_BTilev2 : MFMAF32_16x16F32_BTile<BLOCK_K> {
     }
 };
 
+template <int BLOCK_K>
+struct MFMAF32_32x32x2F32_BTile {
+    static constexpr int tile_n = 32;
+    static constexpr int tile_k = BLOCK_K;
+
+    static constexpr int mma_k = 2;
+    static constexpr int mma_n = 32;
+    static constexpr int rep_k = BLOCK_K / mma_k;
+    static_assert(is_power_of_2(BLOCK_K) && BLOCK_K >= mma_k);
+
+    float regs[rep_k];
+    template <typename SmemAcc>
+    __device__ void copy_s2r(SmemAcc& sB) {
+        int lane = threadIdx.x % warp_size;
+        for (int i = 0; i < rep_k; ++i) {
+            regs[i] = *sB.index((lane / mma_n) + i * mma_k, lane % mma_n);
+        }
+    }
+};
+
 
 struct MFMAF32_16x16F32_CTile {
     using float4 = __attribute__( (__vector_size__(4 * sizeof(float)) )) float;
@@ -532,7 +552,79 @@ template <int BLOCK_M,
           typename SharedMemLayoutA,
           typename SharedMemLayoutB,
           typename GemmInstance>
-struct Mfma_gemmv3_Pipeline : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
+struct Mfma_gemmv3_Pipeline1 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
+    using BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
+
+    using super = BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
+
+    __device__ void run() {
+        const int offset_m = blockIdx.x * BLOCK_M;
+        const int offset_n = blockIdx.y * BLOCK_N;
+
+        RowAccessor<const float> gA_ = {this->a, this->m, this->k};
+        OffsetAccessor<RowAccessor<const float>> gA = {gA_, offset_m, 0};
+        RowAccessor<const float> gB_ = {this->b, this->k, this->n};
+        OffsetAccessor<RowAccessor<const float>> gB = {gB_, 0, offset_n};
+
+        static_assert(BLOCK_K % VecLoad == 0, "");
+        static_assert(BLOCK_K % InnerK == 0, "");
+
+        static_assert(SharedMemLayoutA::s1 == BLOCK_M && SharedMemLayoutA::s2 == BLOCK_K, "");
+        auto sA = LayoutAccessor<SharedMemLayoutA, float>(this->smem);
+
+        static_assert(SharedMemLayoutB::s1 == BLOCK_K && SharedMemLayoutB::s2 == BLOCK_N, "");
+        auto sB = LayoutAccessor<SharedMemLayoutB, float>(this->smem + BLOCK_M * BLOCK_K);
+
+        static_assert(
+            GemmInstance::block_m == BLOCK_M && 
+            GemmInstance::block_n == BLOCK_N && 
+            GemmInstance::block_k == BLOCK_K, ""
+        );
+
+        using LdgA = LdgBlockFrag<BLOCK_M, BLOCK_K, Warps, VecLoad>;
+        using LdgB = LdgBlockFrag<BLOCK_K, BLOCK_N, Warps, VecLoad>;
+        LdgA ldg_a;
+        LdgB ldg_b;
+        GemmInstance block_gemm;
+        block_gemm.fill_c(0.0f);
+        ldg_a.copy_g2r(gA);
+        ldg_b.copy_g2r(gB);
+        ldg_a.copy_r2s(sA);
+        ldg_b.copy_r2s(sB);
+        gA.inc_offset(0, BLOCK_K);
+        gB.inc_offset(BLOCK_K, 0);
+        __syncthreads();
+
+        const int ktiles = cdiv(this->k, BLOCK_K) - 1;
+        for (int k = 0; k < ktiles; ++k) {
+            ldg_a.copy_g2r(gA);
+            ldg_b.copy_g2r(gB);
+            block_gemm.mma(sA, sB);
+            __syncthreads();
+            ldg_a.copy_r2s(sA);
+            ldg_b.copy_r2s(sB);        
+            gA.inc_offset(0, BLOCK_K);
+            gB.inc_offset(BLOCK_K, 0);
+        }
+        block_gemm.mma(sA, sB);
+
+        RowAccessor<float> gC_ = {this->c, this->m, this->n};
+        OffsetAccessor<RowAccessor<float>> gC = {gC_, offset_m, offset_n};
+        block_gemm.copy_r2g(gC);
+    }
+};
+
+
+template <int BLOCK_M, 
+          int BLOCK_K, 
+          int BLOCK_N, 
+          int VecLoad, 
+          int InnerK, 
+          int Warps,
+          typename SharedMemLayoutA,
+          typename SharedMemLayoutB,
+          typename GemmInstance>
+struct Mfma_gemmv3_Pipeline2 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
     using BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
 
     using super = BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
@@ -658,7 +750,7 @@ EXPORT bool LAUNCH_NAME(
         using Mma = TileMMA<ATile, BTile, CTile>;
         using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
 
-        using Gemm = Mfma_gemmv3_Pipeline<_BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
+        using Gemm = Mfma_gemmv3_Pipeline2<_BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
         return run_kernel<Gemm>(A, B, C, M, K, N);
     }
     if (ver == 4) {
@@ -669,7 +761,28 @@ EXPORT bool LAUNCH_NAME(
         using Mma = TileMMA<ATile, BTile, CTile>;
         using GemmInstance = BlockGemmV2<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
 
-        using Gemm = Mfma_gemmv3_Pipeline<_BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
+        using Gemm = Mfma_gemmv3_Pipeline2<_BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
+        return run_kernel<Gemm>(A, B, C, M, K, N);
+    }
+    if (ver == 5) {
+        // pipeline outer loop with stages 1
+        using ATile = MFMAF32_16x16F32_ATile<_InnerK>;
+        using BTile = MFMAF32_16x16F32_BTile<_InnerK>;
+        using CTile = MFMAF32_16x16F32_CTile;
+        using Mma = TileMMA<ATile, BTile, CTile>;
+        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+
+        using Gemm = Mfma_gemmv3_Pipeline1<_BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
+        return run_kernel<Gemm>(A, B, C, M, K, N);
+    }
+    if (ver == 6) {
+        using ATile = MFMAF32_16x16F32_ATile<_InnerK>;
+        using BTile = MFMAF32_16x16F32_BTile<_InnerK>;
+        using CTile = MFMAF32_16x16F32_CTile;
+        using Mma = TileMMA<ATile, BTile, CTile>;
+        using GemmInstance = BlockGemmV2<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+
+        using Gemm = Mfma_gemmv3_Pipeline1<_BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
         return run_kernel<Gemm>(A, B, C, M, K, N);
     }
 

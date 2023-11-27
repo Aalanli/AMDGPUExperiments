@@ -79,7 +79,7 @@ def ck_ver_name(ver: int) -> str:
 
 
 if __name__ == '__main__':
-    a = torch.randn([512, 512], device='cuda')
+    a = torch.randn([2048, 2048], device='cuda')
     b = torch.randn_like(a)
     c1 = ck_gemm(a, b)
     c2 = a @ b
@@ -92,5 +92,5 @@ if __name__ == '__main__':
     print("num kernels:", ck_num_versions())
     for i in range(ck_num_versions()):
         med = do_bench(lambda: ck_gemm(a, b, ver=i), return_mode='median')
-        print(ck_ver_name(i), f': {med}s')
+        print(ck_ver_name(i), f': {i} {med}s')
 

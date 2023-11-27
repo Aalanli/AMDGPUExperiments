@@ -13,6 +13,8 @@ def generate_configs():
                             warps_m = min(block_m // 16, warps)
                             warps_n = min(block_n // 16, warps // warps_m)
                             if warps_m * warps_n != warps: continue
+                            if warps * 64 < block_k: continue
+                            if warps * 64 < block_n: continue
                             yield KernelConfig(
                                 {'_BLOCK_N': block_n, 
                                  '_BLOCK_M': block_m, 
@@ -58,9 +60,12 @@ if __name__ == '__main__':
     b = torch.randn([512, 512], device='cuda')
     # b = torch.eye(32, device='cuda')
     c1 = a @ b
-    c = mfma_gemmv3(a, b, ver=1)
+    c = mfma_gemmv3(a, b, ver=6)
     err = (c1 - c).abs()
     print(c)
     print(err)
     print(err.max())
 
+    a = torch.randn([1024, 1024], device='cuda')
+    b = torch.randn([1024, 1024], device='cuda')
+    mfma_gemmv3(a, b, ver=6)

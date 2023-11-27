@@ -19,7 +19,7 @@ if __name__ == '__main__':
             return lambda: f(a, b)
         return bench_fn
     
-    square = [m for m in range(256, 2049, 256)]
+    square = [m for m in range(2048, 4097, 512)]
     bench = Bench(
         x_vals=square,
         x_name='(m, k, n)',
@@ -30,19 +30,22 @@ if __name__ == '__main__':
     # bench.bench(benchmark_func(hidet_simt),   'simt')
     # bench.bench(benchmark_func(lambda a, b: hidet_simt(a, b, version=1)), 'simtv2')
     # bench.bench(benchmark_func(lambda a, b: hidet_simt(a, b, version=2)), 'simtv3')
-    # bench.bench(benchmark_func(ck_gemm), "composable_kernel_mfma")
+    bench.bench(benchmark_func(ck_gemm), "composable_kernel_mfma")
     # bench.bench(benchmark_func(ck_gemm_dl), "composable_kernel_simt")
     # bench.bench(benchmark_func(mfma_gemmv1), "mfma_v1")
-    bench.bench(benchmark_func(lambda a, b: mfma_gemmv1(a, b, version=1)), "mfma_v2")
-    bench.bench(benchmark_func(wmma_gemm), "wmma_v1")
+    # bench.bench(benchmark_func(lambda a, b: mfma_gemmv1(a, b, version=1)), "mfma_v2")
+    # bench.bench(benchmark_func(wmma_gemm), "wmma_v1")
     # bench.bench(benchmark_func(mfma_gemmv2), "wmma_mfma")
     # bench.bench(benchmark_func(lambda a, b: mfma_gemmv2(a, b, ver=1, pack_len=4)), "wmma_mfma_v1_pack4")
     # bench.bench(benchmark_func(lambda a, b: mfma_gemmv2(a, b, ver=1, pack_len=2)), "wmma_mfma_v1_pack2")
     bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=0)), "mfma_v3_ver0")
-    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=1)), "mfma_v3_ver1")
-    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=2)), "mfma_v3_ver2")
-    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=3)), "mfma_v3_ver3")
-    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=4)), "mfma_v3_ver4")
+    # bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=1)), "mfma_v3_ver1")
+    # bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=2)), "mfma_v3_ver2")
+    # bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=3)), "mfma_v3_ver3")
+    # bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=4)), "mfma_v3_ver4")
+    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=5)), "mfma_v3_ver5")
+    # bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=6)), "mfma_v3_ver6")
+    
     
     
     # bench.bench(benchmark_func(rocgemm), "gemm naive")
@@ -70,3 +73,32 @@ if __name__ == '__main__':
 # (1536, 1536, 1536)                0.258240                0.597761  
 # (1792, 1792, 1792)                0.381601                0.715841  
 # (2048, 2048, 2048)                0.550560                1.174401  
+
+
+#           blas   mfma_v2   wmma_v1  mfma_v3_ver0  mfma_v3_ver2  mfma_v3_ver4  \
+# 256   0.017280  0.036000  0.017920      0.019840      0.019840      0.022240   
+# 512   0.026720  0.066240  0.035040      0.031520      0.031520      0.044480   
+# 768   0.044000  0.101440  0.061280      0.056480      0.056480      0.095520   
+# 1024  0.083520  0.182721  0.124001      0.100640      0.101440      0.186721   
+# 1280  0.154880  0.256162  0.168961      0.169120      0.157761      0.246401   
+# 1536  0.255201  0.398402  0.279842      0.287041      0.287041      0.477123   
+# 1792  0.389442  0.512163  0.420642      0.393842      0.394802      0.585123   
+# 2048  0.522802  0.794724  0.646644      0.596163      0.634163      1.024325   
+
+#       mfma_v3_ver5  mfma_v3_ver6  
+# 256       0.017760      0.017760  
+# 512       0.030080      0.029600  
+# 768       0.055200      0.053921  
+# 1024      0.106880      0.106560  
+# 1280      0.179041      0.176961  
+# 1536      0.278722      0.279361  
+# 1792      0.430882      0.432322  
+# 2048      0.614723      0.615043 
+
+
+#           blas  composable_kernel_mfma  mfma_v3_ver0  mfma_v3_ver5
+# 2048  0.520000                0.546800      0.595042      0.613923
+# 2560  1.129285                1.029605      1.094726      1.178246
+# 3072  1.962571                1.802570      1.919212      2.034412
+# 3584  3.153939                2.834577      3.014416      3.180256
+# 4096  4.363143                4.133061      4.423062      4.632824
