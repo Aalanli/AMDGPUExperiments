@@ -32,9 +32,10 @@
 *.app
 
 compile_commands.json
+matrix_calculator.py
+
 build
 .cache
 __pycache__
 outs
 *.ncu-rep
-matrix_calculator.py
