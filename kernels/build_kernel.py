@@ -441,8 +441,8 @@ class KernelHandler:
             json.dump(order_timings(self.kernel_times), f, indent=2)
         with open(os.path.join(self.dir_path, 'kernel_times_pruned.json'), 'w') as f:            
             json.dump(order_timings(self.filtered_kernel_times(20)), f, indent=2)
-    
-    def __call__(self, *args, **kwargs):
+
+    def warp_args(self, *args, **kwargs):
         runtime_args = kwargs
         runtime_key: str = self.runtime_key(runtime_args)
         args = list(args) + list(runtime_args.values())
@@ -451,7 +451,17 @@ class KernelHandler:
                 args[i] = ctypes.c_void_p(args[i].data_ptr())
             if isinstance(args[i], float):
                 args[i] = ctypes.c_float(args[i])
+        return args, runtime_key
         
+    def call_so(self, so_name, *args, **kwargs):
+        args, _ = self.warp_args(*args, **kwargs)
+        func = self.launch_funcs[so_name]
+        if not func(*args):
+            raise RuntimeError(f'Kernel launch {so_name} failed')
+
+    def __call__(self, *args, **kwargs):
+        args, runtime_key = self.warp_args(*args, **kwargs)
+
         if self.disable_benchmark:
             func = next(iter(self.launch_funcs.items()))[1]
             if not func(*args):

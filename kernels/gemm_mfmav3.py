@@ -1,4 +1,5 @@
 # %%
+from typing import Optional
 import torch
 from kernels import KernelHandler, KernelConfig
 
@@ -43,13 +44,16 @@ kernel = KernelHandler(
     parallel_compile=True
 )
 
-def mfma_gemmv3(a: torch.Tensor, b: torch.Tensor, ver: int = 0) -> torch.Tensor:
+def mfma_gemmv3(a: torch.Tensor, b: torch.Tensor, ver: int = 0, so_name: Optional[str] = None) -> torch.Tensor:
     assert a.shape[1] == b.shape[0]
     assert len(a.shape) == len(b.shape) == 2
     m, k = a.shape
     n = b.shape[1]
     c = torch.empty((m, n), device=a.device, dtype=a.dtype)
-    kernel(a, b, c, m=m, k=k, n=n, ver=ver)
+    if so_name is None:
+        kernel(a, b, c, m=m, k=k, n=n, ver=ver)
+    else:
+        kernel.call_so(so_name, a, b, c, m=m, k=k, n=n, ver=ver)
     return c
 
 

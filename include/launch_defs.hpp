@@ -19,3 +19,11 @@
 #ifndef LAUNCH_NAME
 #define LAUNCH_NAME _kernel
 #endif
+
+#ifndef _VecLoad
+#define _VecLoad 1
+#endif
+
+#ifndef _InnerK
+#define _InnerK 4
+#endif
