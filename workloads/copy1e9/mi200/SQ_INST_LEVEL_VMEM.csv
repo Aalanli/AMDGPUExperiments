@@ -1,2 +1,0 @@
-Index,KernelName,gpu-id,queue-id,queue-index,pid,tid,grd,wgr,lds,scr,arch_vgpr,accum_vgpr,sgpr,wave_size,sig,obj,SQ_INSTS_VMEM,SQ_INST_LEVEL_VMEM,SQ_ACCUM_PREV_HIRES,DispatchNs,BeginNs,EndNs,CompleteNs
-0,"copy_kernel(double*, double*, int) ",2,0,0,3609,3609,155648,1024,0,0,12,4,32,64,0x0,0x7f09f5399440,312500,5195223,581848272,3336707341367075,3336709197320725,3336709197470485,3336707350613817
