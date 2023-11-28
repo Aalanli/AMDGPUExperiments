@@ -19,7 +19,7 @@ if __name__ == '__main__':
             return lambda: f(a, b)
         return bench_fn
     
-    square = [m for m in range(256, 2049, 128)]
+    square = [m for m in range(256, 2049, 256)]
     bench = Bench(
         x_vals=square,
         x_name='(m, k, n)',
