@@ -30,6 +30,7 @@ def generate_configs():
 
 configs = [
     KernelConfig({'_BLOCK_N': 128, '_BLOCK_M': 128, '_BLOCK_K': 16, '_Warps': 4, '_VecLoad': 4, '_InnerK': 4, '_SMEM_INNER_SWIZZLE': 1}),
+    # KernelConfig({'_BLOCK_N': 128, '_BLOCK_M': 128, '_BLOCK_K': 16, '_Warps': 4, '_VecLoad': 4, '_InnerK': 8, '_SMEM_INNER_SWIZZLE': 1}),
 ]
 
 kernel16x16 = KernelHandler(
@@ -106,7 +107,7 @@ def mfma_gemmv3_5(a: torch.Tensor, b: torch.Tensor, ver: int = 0, so_name: Optio
 
 
 if __name__ == '__main__':
-    d = 4096
+    d = 2048
     # a = torch.arange(0, d, device='cuda')[None, :] + torch.arange(0, d, device='cuda')[:, None] * d
     # a = a.float()
     # b = torch.eye(d, device='cuda')
@@ -119,14 +120,16 @@ if __name__ == '__main__':
     # print(err)
     # print(err.max())
     from kernels.build_kernel import do_bench
-    print(do_bench(lambda: mfma_gemmv3(a, b, ver=0)))
+    # print(do_bench(lambda: mfma_gemmv3(a, b, ver=0)))
     # print(do_bench(lambda: mfma_gemmv3(a, b, ver=1)))
-    print(do_bench(lambda: mfma_gemmv3(a, b, ver=2)))
+    # print(do_bench(lambda: mfma_gemmv3(a, b, ver=2)))
     # print(do_bench(lambda: mfma_gemmv3(a, b, ver=3)))
     print(do_bench(lambda: mfma_gemmv3(a, b, ver=4)))
-    print(do_bench(lambda: mfma_gemmv3_5(a, b, ver=0)))
+    print(do_bench(lambda: mfma_gemmv3(a, b, ver=5)))
+    # print(do_bench(lambda: mfma_gemmv3_5(a, b, ver=0)))
     # print(do_bench(lambda: mfma_gemmv3_5(a, b, ver=1)))
-    print(do_bench(lambda: mfma_gemmv3_5(a, b, ver=2)))
+    # print(do_bench(lambda: mfma_gemmv3_5(a, b, ver=2)))
     # print(do_bench(lambda: mfma_gemmv3_5(a, b, ver=3)))
-    print(do_bench(lambda: mfma_gemmv3_5(a, b, ver=4)))
+    # print(do_bench(lambda: mfma_gemmv3_5(a, b, ver=4)))
+    # print(do_bench(lambda: mfma_gemmv3_5(a, b, ver=5)))
 

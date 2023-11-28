@@ -175,6 +175,62 @@ struct BlockGemmV1 : BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTil
     }
 };
 
+template <int BLOCK_M, 
+          int BLOCK_K, 
+          int BLOCK_N, 
+          typename ATile, 
+          typename BTile, 
+          typename CTile, 
+          typename MMA,
+          int Warps>
+struct BlockGemmV1_Init : BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps> {
+    using super = BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps>;
+
+    ATile Atiles[super::rep_m];
+    BTile Btiles[super::rep_n];
+
+    template <typename SMemA, typename SMemB>
+    __device__ void mma(SMemA &sA, SMemB &sB) {
+        int warp = __builtin_amdgcn_readfirstlane(threadIdx.x / warp_size);
+        int warp_m = warp % super::warps_m;
+        int warp_n = warp / super::warps_m;
+        
+        int offset_k = 0;
+        #pragma unroll
+        for (int k = 0; k < super::rep_k; k++) {
+            // load m
+            #pragma unroll
+            for (int im = 0; im < super::rep_m; im++) {
+                OffsetAccessor<SMemA> sA_acc = {
+                    sA, 
+                    warp_m * super::tile_m * super::rep_m + im * super::tile_m,
+                    offset_k    
+                };
+
+                Atiles[im].copy_s2r(sA_acc);
+            }
+
+            // load n
+            #pragma unroll
+            for (int in = 0; in < super::rep_n; in++) {
+                OffsetAccessor<SMemB> sB_acc = {
+                    sB,
+                    offset_k,
+                    warp_n * super::tile_n * super::rep_n + in * super::tile_n
+                };
+
+                Btiles[in].copy_s2r(sB_acc);
+            }
+            offset_k += super::tile_k;
+
+            // mma
+            repeat<super::rep_m, super::rep_n>([&](int i, int j) {
+                MMA::mma(Atiles[i], Btiles[j], this->Ctiles[i][j]);
+            });
+        }
+    }
+};
+
 /// pipeline loading from smem
 template <int BLOCK_M, 
           int BLOCK_K, 

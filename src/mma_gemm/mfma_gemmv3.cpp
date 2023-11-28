@@ -48,7 +48,12 @@ EXPORT bool LAUNCH_NAME(
         using Gemm = Mfma_gemmv3_Pipeline1_E<_BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
         return run_kernel<Gemm>(A, B, C, M, K, N);
     }
-
+    if (ver == 5) {
+        // pipeline outer loop with stages 1
+        using GemmInstance = BlockGemmV1_Init<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+        using Gemm = Mfma_gemmv3_Pipeline1_E2<_BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
+        return run_kernel<Gemm>(A, B, C, M, K, N);
+    }
 
     printf("ver %d does not exist\n", ver);
     return false;

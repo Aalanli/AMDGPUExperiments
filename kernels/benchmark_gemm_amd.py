@@ -19,7 +19,7 @@ if __name__ == '__main__':
             return lambda: f(a, b)
         return bench_fn
     
-    square = [m for m in range(2048, 4097, 512)]
+    square = [m for m in range(256, 2049, 128)]
     bench = Bench(
         x_vals=square,
         x_name='(m, k, n)',
@@ -38,12 +38,12 @@ if __name__ == '__main__':
     # bench.bench(benchmark_func(mfma_gemmv2), "wmma_mfma")
     # bench.bench(benchmark_func(lambda a, b: mfma_gemmv2(a, b, ver=1, pack_len=4)), "wmma_mfma_v1_pack4")
     # bench.bench(benchmark_func(lambda a, b: mfma_gemmv2(a, b, ver=1, pack_len=2)), "wmma_mfma_v1_pack2")
-    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=0)), "mfma_v3_ver0")
+    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=4)), "mfma_v3_ver4")
     # bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=1)), "mfma_v3_ver1")
     # bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=2)), "mfma_v3_ver2")
     # bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=3)), "mfma_v3_ver3")
     # bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=4)), "mfma_v3_ver4")
-    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=4)), "mfma_v3_ver4")
+    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=5)), "mfma_v3_ver5")
     # bench.bench(benchmark_func(lambda a, b: mfma_gemmv3_5(a, b, ver=0)), "mfma_v3_5_ver0")
     # bench.bench(benchmark_func(lambda a, b: mfma_gemmv3_5(a, b, ver=1)), "mfma_v3_5_ver1")
     # bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=6)), "mfma_v3_ver6")
