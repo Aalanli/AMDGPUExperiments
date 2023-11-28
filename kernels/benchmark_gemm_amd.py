@@ -5,7 +5,7 @@ from kernels.gemm_hidet import hidet_simt
 from kernels.composable_kernel_gemm import ck_gemm, ck_gemm_dl
 from kernels.gemm_mfmav1 import mfma_gemmv1
 from kernels.gemm_mfmav2 import mfma_gemmv2
-from kernels.gemm_mfmav3 import mfma_gemmv3
+from kernels.gemm_mfmav3 import mfma_gemmv3, mfma_gemmv3_5
 from kernels.rocwmma_gemm import wmma_gemm
 from kernels.utils import Bench
 from triton.ops.matmul import matmul
@@ -19,7 +19,7 @@ if __name__ == '__main__':
             return lambda: f(a, b)
         return bench_fn
     
-    square = [m for m in range(2048, 4097, 512)]
+    square = [m for m in range(256, 2049, 512)]
     bench = Bench(
         x_vals=square,
         x_name='(m, k, n)',
@@ -43,7 +43,9 @@ if __name__ == '__main__':
     # bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=2)), "mfma_v3_ver2")
     # bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=3)), "mfma_v3_ver3")
     # bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=4)), "mfma_v3_ver4")
-    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=5)), "mfma_v3_ver5")
+    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=4)), "mfma_v3_ver4")
+    # bench.bench(benchmark_func(lambda a, b: mfma_gemmv3_5(a, b, ver=0)), "mfma_v3_5_ver0")
+    # bench.bench(benchmark_func(lambda a, b: mfma_gemmv3_5(a, b, ver=1)), "mfma_v3_5_ver1")
     # bench.bench(benchmark_func(lambda a, b: mfma_gemmv3(a, b, ver=6)), "mfma_v3_ver6")
     
     

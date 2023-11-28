@@ -166,4 +166,11 @@ __device__ inline void vec_load_nullable(const float* ptr, float* dest) {
 }
 
 
+__device__ inline void block_sync_lds()
+{
+    asm volatile("\
+    s_waitcnt lgkmcnt(0) \n \
+    s_barrier \
+    " ::);
 
+}
