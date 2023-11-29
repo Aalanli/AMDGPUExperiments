@@ -127,6 +127,7 @@ if __name__ == '__main__':
     print(do_bench(lambda: mfma_gemmv3(a, b, ver=4)))
     print(do_bench(lambda: mfma_gemmv3(a, b, ver=5)))
     # print(do_bench(lambda: mfma_gemmv3_5(a, b, ver=0)))
+
     # print(do_bench(lambda: mfma_gemmv3_5(a, b, ver=1)))
     # print(do_bench(lambda: mfma_gemmv3_5(a, b, ver=2)))
     # print(do_bench(lambda: mfma_gemmv3_5(a, b, ver=3)))

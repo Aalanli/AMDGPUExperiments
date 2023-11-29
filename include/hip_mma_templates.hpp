@@ -1,9 +1,6 @@
 #include "hip_utils.hpp"
 #include <hip/amd_detail/amd_hip_runtime.h>
 
-
-static constexpr int warp_size = 64;
-
 #define DevHost __device__ __host__
 
 template <int BLOCK_M, int BLOCK_K, int BLOCK_N, int Warps>

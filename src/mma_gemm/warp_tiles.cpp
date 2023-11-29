@@ -1,6 +1,8 @@
 #pragma once
 #include "hip_utils.hpp"
 #include "layouts.cpp"
+#include <hip/amd_detail/amd_hip_runtime.h>
+#include <hip/hip_fp16.h>
 
 
 /// warp level tiles
@@ -166,6 +168,72 @@ struct MFMAF32_32x32F32_CTile {
 };
 
 
+template <int BLOCK_K>
+struct WMMAF16_16x16x16F16_ATile {
+    static constexpr int tile_m = 16;
+    static constexpr int tile_k = BLOCK_K;
+
+    static constexpr int mma_m = 16;
+    static constexpr int mma_k = 16;
+    static constexpr int rep_k = BLOCK_K / mma_k;
+    static_assert(is_power_of_2(BLOCK_K) && BLOCK_K >= mma_k);
+
+    using half16 = __attribute__( (__vector_size__(16 * sizeof(float)) )) _Float16;
+    half16 regs[rep_k];
+    template <typename SmemAcc>
+    __device__ void copy_s2r(SmemAcc& sA) {
+        int lane = threadIdx.x % 16;
+        repeat<rep_k, 16>([&](int i, int j) {
+            regs[i][j] = *sA.index(lane, i * mma_k + j);
+        });
+    }
+};
+
+template <int BLOCK_K>
+struct WMMAF16_16x16x16F16_BTile {
+    static constexpr int tile_n = 16;
+    static constexpr int tile_k = BLOCK_K;
+
+    static constexpr int mma_k = 16;
+    static constexpr int mma_n = 16;
+    static constexpr int rep_k = BLOCK_K / mma_k;
+    static_assert(is_power_of_2(BLOCK_K) && BLOCK_K >= mma_k);
+
+    using half16 = __attribute__( (__vector_size__(16 * sizeof(float)) )) _Float16;
+    half16 regs[rep_k];
+    template <typename SmemAcc>
+    __device__ void copy_s2r(SmemAcc& sB) {
+        int lane = threadIdx.x % warp_size;
+        repeat<rep_k, 16>([&](int i, int j) {
+            regs[i][j] = *sB.index(i * mma_k + j, lane);
+        });
+    }
+};
+
+
+struct WMMAF16_16x16F16_CTile {
+    using half16 = __attribute__( (__vector_size__(16 * sizeof(float)) )) _Float16;
+    half16 regs;
+
+    __device__ void fill(half v) {
+        for (int i = 0; i < 16; ++i) {
+            regs[i] = v;
+        }
+    }
+
+    template <typename GMemC>
+    __device__ void copy_r2g(GMemC &gC) {
+        int lane = threadIdx.x % 16;
+        repeat<8>([&](int i) {
+            int r = i * 2 + threadIdx.x / 16;
+            
+            auto ptr = gC.index(r, lane);
+            if (ptr != nullptr)
+                *ptr = regs[i * 2];
+        });
+    }
+};
+
 
 template <typename TileA, typename TileB, typename TileC>
 struct TileMMA {
@@ -207,6 +275,18 @@ struct TileMMA<MFMAF32_32x32x2F32_ATile<BLOCK_K>, MFMAF32_32x32x2F32_BTile<BLOCK
         for (int i = 0; i < rep_k; ++i) {
             ctile.regs = __builtin_amdgcn_mfma_f32_32x32x2f32(
                 atile.regs[i], btile.regs[i], ctile.regs, 0, 0, 0
+            );
+        }
+    }
+};
+
+template <int BLOCK_K>
+struct TileMMA<WMMAF16_16x16x16F16_ATile<BLOCK_K>, WMMAF16_16x16x16F16_BTile<BLOCK_K>, WMMAF16_16x16F16_CTile> {
+    __device__ static void mma(WMMAF16_16x16x16F16_ATile<BLOCK_K> &atile, WMMAF16_16x16x16F16_BTile<BLOCK_K> &btile, WMMAF16_16x16F16_CTile &ctile) {
+        constexpr int rep_k = WMMAF16_16x16x16F16_ATile<BLOCK_K>::rep_k;
+        for (int i = 0; i < rep_k; ++i) {
+            ctile.regs = __builtin_amdgcn_wmma_f16_16x16x16_f16_w32(
+                atile.regs[i], btile.regs[i], ctile.regs, false
             );
         }
     }

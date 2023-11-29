@@ -76,7 +76,10 @@ DevHost void inline repeat(F&& f) {
     repeat_impl<F, DimInfo>(f);
 }
 
-static constexpr int warp_size = 64;
+// static constexpr int warp_size = 64;
+#ifndef warp_size
+#define warp_size 64
+#endif
 
 
 template <int A, int B>

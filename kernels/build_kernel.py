@@ -23,7 +23,9 @@ def format_error(result):
     else:
         return None
 
-def build(ignore_error, source, out_path, amd=True, **kwargs):
+AMDGPU_ARCHS = ('gfx90a', 'gfx1100')
+
+def build(ignore_error, source, out_path, amd=True, archs=('gfx90a',), **kwargs):
     # print(f'Building {source} to {out_path}')
     args = [f'-D {k}={v}' for k, v in kwargs.items()] + ['-fPIC', '-funroll-loops', '-ffast-math', '-O3', '-g', '-std=c++17']
     assert os.path.exists(source) and os.path.isfile(source)
@@ -33,7 +35,9 @@ def build(ignore_error, source, out_path, amd=True, **kwargs):
     std_err = subprocess.DEVNULL if ignore_error else None
     if amd:
         assert file_ext == '.cpp', f'AMD kernel must be a cpp file, got {file_ext}'
-        args.append('--offload-arch=gfx90a')
+        for arch in archs:
+            assert arch in AMDGPU_ARCHS
+            args.append(f'--offload-arch={arch}')
         result = subprocess.run(['hipcc', '-shared', source] + args + ['-o', out_path, '-I', 'include/'], 
                        check=False, shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         msg = format_error(result)
@@ -173,13 +177,14 @@ class BuildConfig:
     amd: bool
     compile_params: Dict[str, Any]
     out_path: str
+    archs: Tuple[str]
 
 def build_worker(config: BuildConfig, ignore_errors=False):
     if not ignore_errors:
-        build(False, config.source_file, config.out_path, amd=config.amd, **config.compile_params)
+        build(False, config.source_file, config.out_path, amd=config.amd, archs=config.archs, **config.compile_params)
         return True, ''
     try:
-        build(True, config.source_file, config.out_path, amd=config.amd, **config.compile_params)
+        build(True, config.source_file, config.out_path, amd=config.amd, archs=config.archs, **config.compile_params)
     except Exception as e:
         print(f'Failed to compile {config.compile_params}: \ndue to {e}')      
         return False, str(e)
@@ -232,6 +237,8 @@ class KernelHandler:
             compile_configs: List[KernelConfig], 
             keys: List[str], 
             platform: str = 'amd',
+            archs: Tuple[str] = ('gfx90a',),
+            warp_size: int = 64,
             name: Optional[str] = None,
             keep: int = 3,
             compile_params: Optional[Dict[str, Any]] = None,
@@ -258,6 +265,8 @@ class KernelHandler:
         """
 
         assert platform in ['amd', 'nvidia']
+        for arch in archs:
+            assert arch in AMDGPU_ARCHS
         self.disable_benchmark = disable_benchmark
         self.platform = platform
 
@@ -332,12 +341,14 @@ class KernelHandler:
                 compile_param = {}
                 compile_param.update(config.config)
                 compile_param['LAUNCH_NAME'] = launch_name
+                compile_param['warp_size'] = warp_size
 
                 compile_items.append(BuildConfig(
                     source_file=self.source_file,
                     amd=platform=='amd',
                     compile_params=compile_param,
-                    out_path=os.path.join(kernels_path, so_name)
+                    out_path=os.path.join(kernels_path, so_name),
+                    archs=archs
                 ))
             
             if parallel_compile:
