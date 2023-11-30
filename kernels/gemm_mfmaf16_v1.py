@@ -63,18 +63,19 @@ def show_err(x):
     plt.show()
 
 if __name__ == '__main__':
-    d = 4096
-    # a = torch.arange(0, d, device='cuda')[None, :] + torch.arange(0, d, device='cuda')[:, None] * d
-    # a = a.to(torch.half)
-    # b = torch.eye(d, device='cuda').to(torch.half)
-    a = torch.randn([d, d], device='cuda', dtype=torch.half)
-    b = torch.randn([d, d], device='cuda', dtype=torch.half)
-    c1 = a @ b
-    c = mfma_gemmv1f16(a, b, ver=1)
-    err = (c1 - c).abs()
-    print(c)
-    print(err)
-    print(err.max())
-    # from kernels.build_kernel import do_bench
-    # print(do_bench(lambda: mfma_gemmv3f16(a, b, ver=4)))
-    # print(do_bench(lambda: mfma_gemmv3f16(a, b, ver=5)))
+    for d in range(2048, 4097, 512):
+        # d = 512
+        # a = torch.arange(0, d, device='cuda')[None, :] + torch.arange(0, d, device='cuda')[:, None] * d
+        # a = a.to(torch.half)
+        # b = torch.eye(d, device='cuda').to(torch.half)
+        a = torch.randn([d, d], device='cuda', dtype=torch.half)
+        b = torch.randn([d, d], device='cuda', dtype=torch.half)
+        c1 = a @ b
+        c = mfma_gemmv1f16(a, b, ver=1)
+        err = (c1 - c).abs()
+        # print(c)
+        # print(err)
+        print(err.max())
+        # from kernels.build_kernel import do_bench
+        # print(do_bench(lambda: mfma_gemmv3f16(a, b, ver=4)))
+        # print(do_bench(lambda: mfma_gemmv3f16(a, b, ver=5)))

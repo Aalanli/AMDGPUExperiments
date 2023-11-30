@@ -14,7 +14,7 @@ list(APPEND CMAKE_PREFIX_PATH /opt/rocm/hip /opt/rocm /opt/rocm/rocblas)
 # ex. set(AMDGPU_TARGETS "gfx803;gfx900;gfx906")
 find_package(hip REQUIRED)
 find_package(rocblas REQUIRED)
-# find_package(composable_kernel COMPONENTS device_operations)
+find_package(composable_kernel COMPONENTS device_operations)
 
 # set(GPU_TARGETS "gfx90a")
 # Find OpenMP.
@@ -59,23 +59,33 @@ endfunction()
 # target_link_libraries(wmma_test PRIVATE hip::device ${OpenMP_CXX_FLAGS})
 
 
-# add_library(
-#     ck_gemm SHARED
-#     ${CMAKE_SOURCE_DIR}/src/ck/composable_kernel_client.cpp    
-# )
+add_library(
+    ck_gemm SHARED
+    ${CMAKE_SOURCE_DIR}/src/ck/composable_kernel_client.cpp    
+)
 
-# target_include_directories(ck_gemm PRIVATE include)
-# target_compile_options(ck_gemm PRIVATE ${OpenMP_CXX_FLAGS})
-# target_link_libraries(ck_gemm PRIVATE hip::device composable_kernel::device_operations ${OpenMP_CXX_FLAGS})
+target_include_directories(ck_gemm PRIVATE include)
+target_compile_options(ck_gemm PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(ck_gemm PRIVATE hip::device composable_kernel::device_operations ${OpenMP_CXX_FLAGS})
 
-# add_library(
-#     ck_gemm_dl SHARED
-#     ${CMAKE_SOURCE_DIR}/src/ck/ck_kernel_f32_dl_client.cpp    
-# )
+add_library(
+    ck_gemm_dl SHARED
+    ${CMAKE_SOURCE_DIR}/src/ck/ck_kernel_f32_dl_client.cpp    
+)
 
-# target_include_directories(ck_gemm_dl PRIVATE include)
-# target_compile_options(ck_gemm_dl PRIVATE ${OpenMP_CXX_FLAGS})
-# target_link_libraries(ck_gemm_dl PRIVATE hip::device composable_kernel::device_operations ${OpenMP_CXX_FLAGS})
+target_include_directories(ck_gemm_dl PRIVATE include)
+target_compile_options(ck_gemm_dl PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(ck_gemm_dl PRIVATE hip::device composable_kernel::device_operations ${OpenMP_CXX_FLAGS})
+
+add_library(
+    ck_gemmf16 SHARED
+    ${CMAKE_SOURCE_DIR}/src/ck/composable_kernel_clientf16.cpp    
+)
+
+target_include_directories(ck_gemmf16 PRIVATE include)
+target_compile_options(ck_gemmf16 PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(ck_gemmf16 PRIVATE hip::device composable_kernel::device_operations ${OpenMP_CXX_FLAGS})
+
 
 add_executable(gemm
     ${CMAKE_SOURCE_DIR}/src/misc/gemm.cpp
