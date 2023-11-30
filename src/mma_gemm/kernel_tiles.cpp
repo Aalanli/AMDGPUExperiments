@@ -5,15 +5,15 @@
 #include "block_tiles.cpp"
 
 
-template <int BLOCK_M, int BLOCK_K, int BLOCK_N, int Warps>
+template <typename T, int BLOCK_M, int BLOCK_K, int BLOCK_N, int Warps>
 struct BasicGemmInstance {
-    float* smem;
-    const float* __restrict__ a;
-    const float* __restrict__ b;
-    float* __restrict__ c;
+    T* smem;
+    const T* __restrict__ a;
+    const T* __restrict__ b;
+    T* __restrict__ c;
     const int m, n, k;
     static constexpr int used_smem_bytes() {
-        return (BLOCK_M + BLOCK_N) * BLOCK_K * sizeof(float);
+        return (BLOCK_M + BLOCK_N) * BLOCK_K * sizeof(T);
     }
 
     static constexpr int nthreads() {
@@ -21,7 +21,7 @@ struct BasicGemmInstance {
     }
 
     DevHost BasicGemmInstance(
-        float* smem, const float* a, const float* b, float* c, int m, int n, int k
+        T* smem, const T* a, const T* b, T* c, int m, int n, int k
     ) : smem(smem), a(a), b(b), c(c), m(m), n(n), k(k) {}
 
     static DevHost dim3 blocks(int m, int k, int n) {
@@ -38,33 +38,33 @@ struct BasicGemmInstance {
 };
 
 
-template <int BLOCK_M, int BLOCK_K, int BLOCK_N, int VecLoad, int InnerK, int Warps>
-struct Mfma_gemmv3_ref : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
-    using BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
+template <typename T, int BLOCK_M, int BLOCK_K, int BLOCK_N, int VecLoad, int InnerK, int Warps>
+struct Mfma_gemmv3_ref : BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
+    using BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
 
-    using super = BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
+    using super = BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
 
     __device__ void run() {
         const int offset_m = blockIdx.x * BLOCK_M;
         const int offset_n = blockIdx.y * BLOCK_N;
 
 
-        // auto gA = OffsetAccessor<RowAccessor<const float>>(RowAccessor<const float>(this->a, this->m, this->k), offset_m, 0);
-        RowAccessor<const float> gA_ = {this->a, this->m, this->k};
-        OffsetAccessor<RowAccessor<const float>> gA = {gA_, offset_m, 0};
-        RowAccessor<const float> gB_ = {this->b, this->k, this->n};
-        OffsetAccessor<RowAccessor<const float>> gB = {gB_, 0, offset_n};
-        // GMemTile<const float> gB = {this->b, this->k, this->n, 0, offset_n};
+        // auto gA = OffsetAccessor<RowAccessor<const T>>(RowAccessor<const T>(this->a, this->m, this->k), offset_m, 0);
+        RowAccessor<const T> gA_ = {this->a, this->m, this->k};
+        OffsetAccessor<RowAccessor<const T>> gA = {gA_, offset_m, 0};
+        RowAccessor<const T> gB_ = {this->b, this->k, this->n};
+        OffsetAccessor<RowAccessor<const T>> gB = {gB_, 0, offset_n};
+        // GMemTile<const T> gB = {this->b, this->k, this->n, 0, offset_n};
 
         static_assert(BLOCK_K % VecLoad == 0, "");
         static_assert(BLOCK_K % InnerK == 0, "");
         using SharedMemLayoutA = ComposeLayout<SwizzleLayout<BLOCK_M, BLOCK_K / VecLoad>, RowLayout<1, VecLoad>>;
         // using SharedMemLayoutA = RowLayout<BLOCK_M, BLOCK_K>;
-        auto sA = LayoutAccessor<SharedMemLayoutA, float>(this->smem);
+        auto sA = LayoutAccessor<SharedMemLayoutA, T>(this->smem);
 
         using SharedMemLayoutB = TransposeLayout<ComposeLayout<SwizzleLayout<BLOCK_N, BLOCK_K / VecLoad>, RowLayout<1, VecLoad>>>;
         // using SharedMemLayoutB = RowLayout<BLOCK_K, BLOCK_N>;
-        auto sB = LayoutAccessor<SharedMemLayoutB, float>(this->smem + BLOCK_M * BLOCK_K);
+        auto sB = LayoutAccessor<SharedMemLayoutB, T>(this->smem + BLOCK_M * BLOCK_K);
 
         using ATile = MFMAF32_16x16F32_ATile<InnerK>;
         using BTile = MFMAF32_16x16F32_BTile<InnerK>;
@@ -72,8 +72,8 @@ struct Mfma_gemmv3_ref : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
         using Mma = TileMMA<ATile, BTile, CTile>;
         using GemmInstance = BlockGemmV1<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Mma, Warps>;
 
-        using LdgA = LdgBlockFrag<BLOCK_M, BLOCK_K, Warps, VecLoad>;
-        using LdgB = LdgBlockFrag<BLOCK_K, BLOCK_N, Warps, VecLoad>;
+        using LdgA = LdgBlockFrag<T, BLOCK_M, BLOCK_K, Warps, VecLoad>;
+        using LdgB = LdgBlockFrag<T, BLOCK_K, BLOCK_N, Warps, VecLoad>;
         LdgA ldg_a;
         LdgB ldg_b;
         GemmInstance block_gemm;
@@ -96,15 +96,16 @@ struct Mfma_gemmv3_ref : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
             gB.inc_offset(BLOCK_K, 0);
 
         }
-        RowAccessor<float> gC_ = {this->c, this->m, this->n};
-        OffsetAccessor<RowAccessor<float>> gC = {gC_, offset_m, offset_n};
-        // GMemTile<float> gC = {this->c, this->m, this->n, offset_m, offset_n};
+        RowAccessor<T> gC_ = {this->c, this->m, this->n};
+        OffsetAccessor<RowAccessor<T>> gC = {gC_, offset_m, offset_n};
+        // GMemTile<T> gC = {this->c, this->m, this->n, offset_m, offset_n};
         block_gemm.copy_r2g(gC);
     }
 };
 
 
-template <int BLOCK_M, 
+template <typename T,
+          int BLOCK_M, 
           int BLOCK_K, 
           int BLOCK_N, 
           int VecLoad, 
@@ -113,32 +114,32 @@ template <int BLOCK_M,
           typename SharedMemLayoutA,
           typename SharedMemLayoutB,
           typename GemmInstance>
-struct Mfma_gemmv3 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
-    using BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
+struct Mfma_gemmv3 : BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
+    using BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
 
-    using super = BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
+    using super = BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
 
     static constexpr int used_smem_bytes() {
-        return sizeof(float) * (SharedMemLayoutA::s1 * SharedMemLayoutA::s2 + SharedMemLayoutB::s1 * SharedMemLayoutB::s2);
+        return sizeof(T) * (SharedMemLayoutA::s1 * SharedMemLayoutA::s2 + SharedMemLayoutB::s1 * SharedMemLayoutB::s2);
     }
 
     __device__ void run() {
         const int offset_m = blockIdx.x * BLOCK_M;
         const int offset_n = blockIdx.y * BLOCK_N;
 
-        RowAccessor<const float> gA_ = {this->a, this->m, this->k};
-        OffsetAccessor<RowAccessor<const float>> gA = {gA_, offset_m, 0};
-        RowAccessor<const float> gB_ = {this->b, this->k, this->n};
-        OffsetAccessor<RowAccessor<const float>> gB = {gB_, 0, offset_n};
+        RowAccessor<const T> gA_ = {this->a, this->m, this->k};
+        OffsetAccessor<RowAccessor<const T>> gA = {gA_, offset_m, 0};
+        RowAccessor<const T> gB_ = {this->b, this->k, this->n};
+        OffsetAccessor<RowAccessor<const T>> gB = {gB_, 0, offset_n};
 
         static_assert(BLOCK_K % VecLoad == 0, "");
         static_assert(BLOCK_K % InnerK == 0, "");
 
         // static_assert(SharedMemLayoutA::s1 == BLOCK_M && SharedMemLayoutA::s2 == BLOCK_K, "");
-        auto sA = LayoutAccessor<SharedMemLayoutA, float>(this->smem);
+        auto sA = LayoutAccessor<SharedMemLayoutA, T>(this->smem);
 
         // static_assert(SharedMemLayoutB::s1 == BLOCK_K && SharedMemLayoutB::s2 == BLOCK_N, "");
-        auto sB = LayoutAccessor<SharedMemLayoutB, float>(this->smem + SharedMemLayoutA::s1 * SharedMemLayoutA::s2);
+        auto sB = LayoutAccessor<SharedMemLayoutB, T>(this->smem + SharedMemLayoutA::s1 * SharedMemLayoutA::s2);
 
         static_assert(
             GemmInstance::block_m == BLOCK_M && 
@@ -146,8 +147,8 @@ struct Mfma_gemmv3 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
             GemmInstance::block_k == BLOCK_K, ""
         );
 
-        using LdgA = LdgBlockFrag<BLOCK_M, BLOCK_K, Warps, VecLoad>;
-        using LdgB = LdgBlockFrag<BLOCK_K, BLOCK_N, Warps, VecLoad>;
+        using LdgA = LdgBlockFrag<T, BLOCK_M, BLOCK_K, Warps, VecLoad>;
+        using LdgB = LdgBlockFrag<T, BLOCK_K, BLOCK_N, Warps, VecLoad>;
         LdgA ldg_a;
         LdgB ldg_b;
         GemmInstance block_gemm;
@@ -165,13 +166,14 @@ struct Mfma_gemmv3 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
             gB.inc_offset(BLOCK_K, 0);
 
         }
-        RowAccessor<float> gC_ = {this->c, this->m, this->n};
-        OffsetAccessor<RowAccessor<float>> gC = {gC_, offset_m, offset_n};
+        RowAccessor<T> gC_ = {this->c, this->m, this->n};
+        OffsetAccessor<RowAccessor<T>> gC = {gC_, offset_m, offset_n};
         block_gemm.copy_r2g(gC);
     }
 };
 
-template <int BLOCK_M, 
+template <typename T,
+          int BLOCK_M, 
           int BLOCK_K, 
           int BLOCK_N, 
           int VecLoad, 
@@ -180,31 +182,31 @@ template <int BLOCK_M,
           typename SharedMemLayoutA,
           typename SharedMemLayoutB,
           typename GemmInstance>
-struct Mfma_gemmv3_Pipeline1 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
-    using BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
+struct Mfma_gemmv3_Pipeline1 : BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
+    using BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
 
-    using super = BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
+    using super = BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
     static constexpr int used_smem_bytes() {
-        return sizeof(float) * (SharedMemLayoutA::s1 * SharedMemLayoutA::s2 + SharedMemLayoutB::s1 * SharedMemLayoutB::s2);
+        return sizeof(T) * (SharedMemLayoutA::s1 * SharedMemLayoutA::s2 + SharedMemLayoutB::s1 * SharedMemLayoutB::s2);
     }
 
     __device__ void run() {
         const int offset_m = blockIdx.x * BLOCK_M;
         const int offset_n = blockIdx.y * BLOCK_N;
 
-        RowAccessor<const float> gA_ = {this->a, this->m, this->k};
-        OffsetAccessor<RowAccessor<const float>> gA = {gA_, offset_m, 0};
-        RowAccessor<const float> gB_ = {this->b, this->k, this->n};
-        OffsetAccessor<RowAccessor<const float>> gB = {gB_, 0, offset_n};
+        RowAccessor<const T> gA_ = {this->a, this->m, this->k};
+        OffsetAccessor<RowAccessor<const T>> gA = {gA_, offset_m, 0};
+        RowAccessor<const T> gB_ = {this->b, this->k, this->n};
+        OffsetAccessor<RowAccessor<const T>> gB = {gB_, 0, offset_n};
 
         static_assert(BLOCK_K % VecLoad == 0, "");
         static_assert(BLOCK_K % InnerK == 0, "");
 
         // static_assert(SharedMemLayoutA::s1 == BLOCK_M && SharedMemLayoutA::s2 == BLOCK_K, "");
-        auto sA = LayoutAccessor<SharedMemLayoutA, float>(this->smem);
+        auto sA = LayoutAccessor<SharedMemLayoutA, T>(this->smem);
 
         // static_assert(SharedMemLayoutB::s1 == BLOCK_K && SharedMemLayoutB::s2 == BLOCK_N, "");
-        auto sB = LayoutAccessor<SharedMemLayoutB, float>(this->smem + SharedMemLayoutA::s1 * SharedMemLayoutA::s2);
+        auto sB = LayoutAccessor<SharedMemLayoutB, T>(this->smem + SharedMemLayoutA::s1 * SharedMemLayoutA::s2);
 
         static_assert(
             GemmInstance::block_m == BLOCK_M && 
@@ -212,8 +214,8 @@ struct Mfma_gemmv3_Pipeline1 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warp
             GemmInstance::block_k == BLOCK_K, ""
         );
 
-        using LdgA = LdgBlockFrag<BLOCK_M, BLOCK_K, Warps, VecLoad>;
-        using LdgB = LdgBlockFrag<BLOCK_K, BLOCK_N, Warps, VecLoad>;
+        using LdgA = LdgBlockFrag<T, BLOCK_M, BLOCK_K, Warps, VecLoad>;
+        using LdgB = LdgBlockFrag<T, BLOCK_K, BLOCK_N, Warps, VecLoad>;
         LdgA ldg_a;
         LdgB ldg_b;
         GemmInstance block_gemm;
@@ -242,14 +244,15 @@ struct Mfma_gemmv3_Pipeline1 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warp
         __syncthreads();
         block_gemm.mma(sA, sB);
 
-        RowAccessor<float> gC_ = {this->c, this->m, this->n};
-        OffsetAccessor<RowAccessor<float>> gC = {gC_, offset_m, offset_n};
+        RowAccessor<T> gC_ = {this->c, this->m, this->n};
+        OffsetAccessor<RowAccessor<T>> gC = {gC_, offset_m, offset_n};
         block_gemm.copy_r2g(gC);
     }
 };
 
 
-template <int BLOCK_M, 
+template <typename T,
+          int BLOCK_M, 
           int BLOCK_K, 
           int BLOCK_N, 
           int VecLoad, 
@@ -258,31 +261,31 @@ template <int BLOCK_M,
           typename SharedMemLayoutA,
           typename SharedMemLayoutB,
           typename GemmInstance>
-struct Mfma_gemmv3_Pipeline1_E : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
-    using BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
+struct Mfma_gemmv3_Pipeline1_E : BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
+    using BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
 
-    using super = BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
+    using super = BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
     static constexpr int used_smem_bytes() {
-        return sizeof(float) * (SharedMemLayoutA::s1 * SharedMemLayoutA::s2 + SharedMemLayoutB::s1 * SharedMemLayoutB::s2);
+        return sizeof(T) * (SharedMemLayoutA::s1 * SharedMemLayoutA::s2 + SharedMemLayoutB::s1 * SharedMemLayoutB::s2);
     }
     
     __device__ void run() {
         const int offset_m = blockIdx.x * BLOCK_M;
         const int offset_n = blockIdx.y * BLOCK_N;
 
-        RowAccessor<const float> gA_ = {this->a, this->m, this->k};
-        OffsetAccessor<RowAccessor<const float>> gA = {gA_, offset_m, 0};
-        RowAccessor<const float> gB_ = {this->b, this->k, this->n};
-        OffsetAccessor<RowAccessor<const float>> gB = {gB_, 0, offset_n};
+        RowAccessor<const T> gA_ = {this->a, this->m, this->k};
+        OffsetAccessor<RowAccessor<const T>> gA = {gA_, offset_m, 0};
+        RowAccessor<const T> gB_ = {this->b, this->k, this->n};
+        OffsetAccessor<RowAccessor<const T>> gB = {gB_, 0, offset_n};
 
         static_assert(BLOCK_K % VecLoad == 0, "");
         static_assert(BLOCK_K % InnerK == 0, "");
 
         // static_assert(SharedMemLayoutA::s1 == BLOCK_M && SharedMemLayoutA::s2 == BLOCK_K, "");
-        auto sA = LayoutAccessor<SharedMemLayoutA, float>(this->smem);
+        auto sA = LayoutAccessor<SharedMemLayoutA, T>(this->smem);
 
         // static_assert(SharedMemLayoutB::s1 == BLOCK_K && SharedMemLayoutB::s2 == BLOCK_N, "");
-        auto sB = LayoutAccessor<SharedMemLayoutB, float>(this->smem + SharedMemLayoutA::s1 * SharedMemLayoutA::s2);
+        auto sB = LayoutAccessor<SharedMemLayoutB, T>(this->smem + SharedMemLayoutA::s1 * SharedMemLayoutA::s2);
 
         static_assert(
             GemmInstance::block_m == BLOCK_M && 
@@ -290,8 +293,8 @@ struct Mfma_gemmv3_Pipeline1_E : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Wa
             GemmInstance::block_k == BLOCK_K, ""
         );
 
-        using LdgA = LdgBlockFrag<BLOCK_M, BLOCK_K, Warps, VecLoad>;
-        using LdgB = LdgBlockFrag<BLOCK_K, BLOCK_N, Warps, VecLoad>;
+        using LdgA = LdgBlockFrag<T, BLOCK_M, BLOCK_K, Warps, VecLoad>;
+        using LdgB = LdgBlockFrag<T, BLOCK_K, BLOCK_N, Warps, VecLoad>;
         LdgA ldg_a;
         LdgB ldg_b;
         GemmInstance block_gemm;
@@ -322,13 +325,14 @@ struct Mfma_gemmv3_Pipeline1_E : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Wa
         block_sync_lds();
         block_gemm.mma(sA, sB);
 
-        RowAccessor<float> gC_ = {this->c, this->m, this->n};
-        OffsetAccessor<RowAccessor<float>> gC = {gC_, offset_m, offset_n};
+        RowAccessor<T> gC_ = {this->c, this->m, this->n};
+        OffsetAccessor<RowAccessor<T>> gC = {gC_, offset_m, offset_n};
         block_gemm.copy_r2g(gC);
     }
 };
 
-template <int BLOCK_M, 
+template <typename T,
+          int BLOCK_M, 
           int BLOCK_K, 
           int BLOCK_N, 
           int VecLoad, 
@@ -337,31 +341,31 @@ template <int BLOCK_M,
           typename SharedMemLayoutA,
           typename SharedMemLayoutB,
           typename GemmInstance>
-struct Mfma_gemmv3_Pipeline1_E2 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
-    using BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
+struct Mfma_gemmv3_Pipeline1_E2 : BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
+    using BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
 
-    using super = BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
+    using super = BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
     static constexpr int used_smem_bytes() {
-        return sizeof(float) * (SharedMemLayoutA::s1 * SharedMemLayoutA::s2 + SharedMemLayoutB::s1 * SharedMemLayoutB::s2);
+        return sizeof(T) * (SharedMemLayoutA::s1 * SharedMemLayoutA::s2 + SharedMemLayoutB::s1 * SharedMemLayoutB::s2);
     }
     
     __device__ void run() {
         const int offset_m = __builtin_amdgcn_readfirstlane(blockIdx.x * BLOCK_M);
         const int offset_n = __builtin_amdgcn_readfirstlane(blockIdx.y * BLOCK_N);
 
-        RowAccessor<const float> gA_ = {this->a, this->m, this->k};
-        OffsetAccessor<RowAccessor<const float>> gA = {gA_, offset_m, 0};
-        RowAccessor<const float> gB_ = {this->b, this->k, this->n};
-        OffsetAccessor<RowAccessor<const float>> gB = {gB_, 0, offset_n};
+        RowAccessor<const T> gA_ = {this->a, this->m, this->k};
+        OffsetAccessor<RowAccessor<const T>> gA = {gA_, offset_m, 0};
+        RowAccessor<const T> gB_ = {this->b, this->k, this->n};
+        OffsetAccessor<RowAccessor<const T>> gB = {gB_, 0, offset_n};
 
         static_assert(BLOCK_K % VecLoad == 0, "");
         static_assert(BLOCK_K % InnerK == 0, "");
 
         // static_assert(SharedMemLayoutA::s1 == BLOCK_M && SharedMemLayoutA::s2 == BLOCK_K, "");
-        auto sA = LayoutAccessor<SharedMemLayoutA, float>(this->smem);
+        auto sA = LayoutAccessor<SharedMemLayoutA, T>(this->smem);
 
         // static_assert(SharedMemLayoutB::s1 == BLOCK_K && SharedMemLayoutB::s2 == BLOCK_N, "");
-        auto sB = LayoutAccessor<SharedMemLayoutB, float>(this->smem + SharedMemLayoutA::s1 * SharedMemLayoutA::s2);
+        auto sB = LayoutAccessor<SharedMemLayoutB, T>(this->smem + SharedMemLayoutA::s1 * SharedMemLayoutA::s2);
 
         static_assert(
             GemmInstance::block_m == BLOCK_M && 
@@ -369,8 +373,8 @@ struct Mfma_gemmv3_Pipeline1_E2 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, W
             GemmInstance::block_k == BLOCK_K, ""
         );
 
-        using LdgA = LdgBlockFrag<BLOCK_M, BLOCK_K, Warps, VecLoad>;
-        using LdgB = LdgBlockFrag<BLOCK_K, BLOCK_N, Warps, VecLoad>;
+        using LdgA = LdgBlockFrag<T, BLOCK_M, BLOCK_K, Warps, VecLoad>;
+        using LdgB = LdgBlockFrag<T, BLOCK_K, BLOCK_N, Warps, VecLoad>;
         LdgA ldg_a;
         LdgB ldg_b;
         GemmInstance block_gemm;
@@ -401,8 +405,8 @@ struct Mfma_gemmv3_Pipeline1_E2 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, W
         block_sync_lds();
         block_gemm.mma(sA, sB);
 
-        RowAccessor<float> gC_ = {this->c, this->m, this->n};
-        OffsetAccessor<RowAccessor<float>> gC = {gC_, offset_m, offset_n};
+        RowAccessor<T> gC_ = {this->c, this->m, this->n};
+        OffsetAccessor<RowAccessor<T>> gC = {gC_, offset_m, offset_n};
         block_gemm.copy_r2g(gC);
     }
 };
@@ -410,7 +414,8 @@ struct Mfma_gemmv3_Pipeline1_E2 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, W
 
 
 
-template <int BLOCK_M, 
+template <typename T,
+          int BLOCK_M, 
           int BLOCK_K, 
           int BLOCK_N, 
           int VecLoad, 
@@ -419,32 +424,32 @@ template <int BLOCK_M,
           typename SharedMemLayoutA,
           typename SharedMemLayoutB,
           typename GemmInstance>
-struct Mfma_gemmv3_Pipeline2 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
-    using BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
+struct Mfma_gemmv3_Pipeline2 : BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
+    using BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
 
-    using super = BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
+    using super = BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
 
     static constexpr int used_smem_bytes() {
-        return 2 * (BLOCK_M + BLOCK_N) * BLOCK_K * sizeof(float);
+        return 2 * (BLOCK_M + BLOCK_N) * BLOCK_K * sizeof(T);
     }
 
     __device__ void run() {
         const int offset_m = blockIdx.x * BLOCK_M;
         const int offset_n = blockIdx.y * BLOCK_N;
 
-        RowAccessor<const float> gA_ = {this->a, this->m, this->k};
-        OffsetAccessor<RowAccessor<const float>> gA = {gA_, offset_m, 0};
-        RowAccessor<const float> gB_ = {this->b, this->k, this->n};
-        OffsetAccessor<RowAccessor<const float>> gB = {gB_, 0, offset_n};
+        RowAccessor<const T> gA_ = {this->a, this->m, this->k};
+        OffsetAccessor<RowAccessor<const T>> gA = {gA_, offset_m, 0};
+        RowAccessor<const T> gB_ = {this->b, this->k, this->n};
+        OffsetAccessor<RowAccessor<const T>> gB = {gB_, 0, offset_n};
 
         static_assert(BLOCK_K % VecLoad == 0, "");
         static_assert(BLOCK_K % InnerK == 0, "");
 
         static_assert(SharedMemLayoutA::s1 == BLOCK_M && SharedMemLayoutA::s2 == BLOCK_K, "");
-        LayoutAccessor<SharedMemLayoutA, float> sA[2] = {this->smem, this->smem + BLOCK_M * BLOCK_K};
+        LayoutAccessor<SharedMemLayoutA, T> sA[2] = {this->smem, this->smem + BLOCK_M * BLOCK_K};
 
         static_assert(SharedMemLayoutB::s1 == BLOCK_K && SharedMemLayoutB::s2 == BLOCK_N, "");
-        LayoutAccessor<SharedMemLayoutB, float> sB[2] = {this->smem + 2 * BLOCK_M * BLOCK_K, this->smem + 2 * BLOCK_M * BLOCK_K + BLOCK_N * BLOCK_K};
+        LayoutAccessor<SharedMemLayoutB, T> sB[2] = {this->smem + 2 * BLOCK_M * BLOCK_K, this->smem + 2 * BLOCK_M * BLOCK_K + BLOCK_N * BLOCK_K};
 
         static_assert(
             GemmInstance::block_m == BLOCK_M && 
@@ -452,8 +457,8 @@ struct Mfma_gemmv3_Pipeline2 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warp
             GemmInstance::block_k == BLOCK_K, ""
         );
 
-        using LdgA = LdgBlockFrag<BLOCK_M, BLOCK_K, Warps, VecLoad>;
-        using LdgB = LdgBlockFrag<BLOCK_K, BLOCK_N, Warps, VecLoad>;
+        using LdgA = LdgBlockFrag<T, BLOCK_M, BLOCK_K, Warps, VecLoad>;
+        using LdgB = LdgBlockFrag<T, BLOCK_K, BLOCK_N, Warps, VecLoad>;
         LdgA ldg_a;
         LdgB ldg_b;
         GemmInstance block_gemm;
@@ -480,8 +485,8 @@ struct Mfma_gemmv3_Pipeline2 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warp
         }
         block_gemm.mma(sA[k_iter % 2], sB[k_iter % 2]);
 
-        RowAccessor<float> gC_ = {this->c, this->m, this->n};
-        OffsetAccessor<RowAccessor<float>> gC = {gC_, offset_m, offset_n};
+        RowAccessor<T> gC_ = {this->c, this->m, this->n};
+        OffsetAccessor<RowAccessor<T>> gC = {gC_, offset_m, offset_n};
         block_gemm.copy_r2g(gC);
     }
 };

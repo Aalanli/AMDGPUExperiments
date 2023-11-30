@@ -26,7 +26,9 @@ kernel = KernelHandler(
     platform='amd',
     disable_benchmark=False,
     ignore_compile_errors=True,
-    parallel_compile=True
+    parallel_compile=True,
+    archs=('gfx90a',),
+    warp_size=64
 )
 
 def mfma_gemmv2(a: torch.Tensor, b: torch.Tensor, ver: int = 0, pack_len: int = 4) -> torch.Tensor:

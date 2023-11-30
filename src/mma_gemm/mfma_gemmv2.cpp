@@ -4,8 +4,8 @@
 #include <stdio.h>
 
 template <int BLOCK_M, int BLOCK_K, int BLOCK_N, int Warps>
-struct GemmFmfa_f32_16x16x4_f32v1 : BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
-    using BasicGemmInstance<BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
+struct GemmFmfa_f32_16x16x4_f32v1 : BasicGemmInstance<float, BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
+    using BasicGemmInstance<float, BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
     static constexpr int mma_m = 16;
     static constexpr int mma_n = 16;
     static constexpr int mma_k = 4;

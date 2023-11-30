@@ -168,6 +168,81 @@ struct MFMAF32_32x32F32_CTile {
 };
 
 
+using half4 = __attribute__( (__vector_size__(4 * sizeof(_Float16)) )) _Float16;
+template <int BLOCK_K>
+struct MFMAF32_16x16x16F16_ATile {
+    static constexpr int tile_m = 16;
+    static constexpr int tile_k = BLOCK_K;
+
+    static constexpr int mma_m = 16;
+    static constexpr int mma_k = 16;
+    static constexpr int rep_k = BLOCK_K / mma_k;
+    static_assert(is_power_of_2(BLOCK_K) && BLOCK_K >= mma_k);
+
+    half4 regs[rep_k];
+    template <typename SmemAcc>
+    __device__ void copy_s2r(SmemAcc& sA) {
+        int lane = threadIdx.x % warp_size;
+        // repeat<rep_k, 2>([&](int i, int j) {
+        //     half *ptr = sA.index(lane % 16, (lane / 16) * 4 + i * mma_k + j * 2);
+        //     half2 value = *((half2*) ptr);
+        //     regs[i][j * 2] = value.x;
+        //     regs[i][j * 2 + 1] = value.y;
+        // });
+
+        // do not assume that sA is contiguous for now, hopefully the compiler can vectorize
+        // accesses
+        repeat<rep_k, 4>([&](int i, int j) {
+            half *ptr = sA.index(lane % 16, (lane / 16) * 4 + i * mma_k + j);
+            regs[i][j] = *ptr;
+        });
+    }
+};
+
+template <int BLOCK_K>
+struct MFMAF32_16x16x16F16_BTile {
+    static constexpr int tile_n = 16;
+    static constexpr int tile_k = BLOCK_K;
+
+    static constexpr int mma_k = 16;
+    static constexpr int mma_n = 16;
+    static constexpr int rep_k = BLOCK_K / mma_k;
+    static_assert(is_power_of_2(BLOCK_K) && BLOCK_K >= mma_k);
+
+    half4 regs[rep_k];
+    template <typename SmemAcc>
+    __device__ void copy_s2r(SmemAcc& sB) {
+        int lane = threadIdx.x % warp_size;
+        repeat<rep_k, 4>([&](int i, int j) {
+            half* ptr = sB.index((lane / 16) * 4 + i * mma_k + j, lane % 16);
+            regs[i][j] = *ptr;
+        });
+    }
+};
+
+
+struct MFMAF32_16x16F16_CTile {
+    using float4 = __attribute__( (__vector_size__(4 * sizeof(float)) )) float;
+    float4 regs;
+
+    __device__ void fill(float v) {
+        for (int i = 0; i < 4; ++i) {
+            regs[i] = v;
+        }
+    }
+
+    template <typename GMemC>
+    __device__ void copy_r2g(GMemC &gC) {
+        int lane = threadIdx.x % warp_size;
+        repeat<4>([&](int i) {
+            auto ptr = gC.index((lane / 16) * 4 + i, lane % 16);
+            if (ptr != nullptr)
+                *ptr = regs[i];
+        });
+    }
+};
+
+using half16 = __attribute__( (__vector_size__(16 * sizeof(_Float16)) )) _Float16;
 template <int BLOCK_K>
 struct WMMAF16_16x16x16F16_ATile {
     static constexpr int tile_m = 16;
@@ -178,7 +253,6 @@ struct WMMAF16_16x16x16F16_ATile {
     static constexpr int rep_k = BLOCK_K / mma_k;
     static_assert(is_power_of_2(BLOCK_K) && BLOCK_K >= mma_k);
 
-    using half16 = __attribute__( (__vector_size__(16 * sizeof(float)) )) _Float16;
     half16 regs[rep_k];
     template <typename SmemAcc>
     __device__ void copy_s2r(SmemAcc& sA) {
@@ -199,7 +273,6 @@ struct WMMAF16_16x16x16F16_BTile {
     static constexpr int rep_k = BLOCK_K / mma_k;
     static_assert(is_power_of_2(BLOCK_K) && BLOCK_K >= mma_k);
 
-    using half16 = __attribute__( (__vector_size__(16 * sizeof(float)) )) _Float16;
     half16 regs[rep_k];
     template <typename SmemAcc>
     __device__ void copy_s2r(SmemAcc& sB) {
@@ -212,7 +285,6 @@ struct WMMAF16_16x16x16F16_BTile {
 
 
 struct WMMAF16_16x16F16_CTile {
-    using half16 = __attribute__( (__vector_size__(16 * sizeof(float)) )) _Float16;
     half16 regs;
 
     __device__ void fill(half v) {
@@ -274,6 +346,18 @@ struct TileMMA<MFMAF32_32x32x2F32_ATile<BLOCK_K>, MFMAF32_32x32x2F32_BTile<BLOCK
         constexpr int rep_k = MFMAF32_32x32x2F32_ATile<BLOCK_K>::rep_k;
         for (int i = 0; i < rep_k; ++i) {
             ctile.regs = __builtin_amdgcn_mfma_f32_32x32x2f32(
+                atile.regs[i], btile.regs[i], ctile.regs, 0, 0, 0
+            );
+        }
+    }
+};
+
+template <int BLOCK_K>
+struct TileMMA<MFMAF32_16x16x16F16_ATile<BLOCK_K>, MFMAF32_16x16x16F16_BTile<BLOCK_K>, MFMAF32_16x16F16_CTile> {
+    __device__ static void mma(MFMAF32_16x16x16F16_ATile<BLOCK_K> &atile, MFMAF32_16x16x16F16_BTile<BLOCK_K> &btile, MFMAF32_16x16F16_CTile &ctile) {
+        constexpr int rep_k = MFMAF32_16x16x16F16_ATile<BLOCK_K>::rep_k;
+        for (int i = 0; i < rep_k; ++i) {
+            ctile.regs = __builtin_amdgcn_mfma_f32_16x16x16f16(
                 atile.regs[i], btile.regs[i], ctile.regs, 0, 0, 0
             );
         }

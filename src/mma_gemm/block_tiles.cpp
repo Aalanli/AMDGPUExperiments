@@ -4,7 +4,7 @@
 #include "layouts.cpp"
 
 /// block level
-template <int BLOCK_A, int BLOCK_B, int Warps, int VecLoad>
+template <typename T, int BLOCK_A, int BLOCK_B, int Warps, int VecLoad>
 struct LdgBlockFrag {
     static_assert(is_power_of_2(BLOCK_B) && BLOCK_B % VecLoad == 0, "");
     static_assert(is_power_of_2(BLOCK_A), "");
@@ -14,7 +14,7 @@ struct LdgBlockFrag {
     static constexpr int rep_m = BLOCK_A / stride_col;
     static constexpr bool oversub = stride_col > BLOCK_A;
     
-    float ldg_regs[Max<rep_m, 1>::value][VecLoad];
+    T ldg_regs[Max<rep_m, 1>::value][VecLoad];
 
     template <typename GmemAcc>
     __device__ void copy_g2r(GmemAcc& gA) {

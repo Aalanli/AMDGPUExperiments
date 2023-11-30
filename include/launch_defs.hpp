@@ -25,5 +25,5 @@
 #endif
 
 #ifndef _InnerK
-#define _InnerK 4
+#define _InnerK 16
 #endif

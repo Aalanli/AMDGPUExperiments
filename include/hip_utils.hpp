@@ -2,6 +2,7 @@
 
 #include "hip/hip_runtime.h"
 #include <hip/amd_detail/amd_hip_runtime.h>
+#include <hip/hip_fp16.h>
 // #include <hip/amd_detail/amd_hip_vector_types.h>
 #include <hip/hip_runtime_api.h>
 
@@ -76,10 +77,11 @@ DevHost void inline repeat(F&& f) {
     repeat_impl<F, DimInfo>(f);
 }
 
-// static constexpr int warp_size = 64;
-#ifndef warp_size
-#define warp_size 64
+#ifndef __WARP_SIZE_AMDGCN__
+#define __WARP_SIZE_AMDGCN__ 64
 #endif
+
+static constexpr int warp_size = __WARP_SIZE_AMDGCN__;
 
 
 template <int A, int B>
@@ -168,6 +170,80 @@ __device__ inline void vec_load_nullable(const float* ptr, float* dest) {
     }
 }
 
+template <int pack>
+__device__ inline void vec_load_nullable(const half* ptr, half* dest) {
+    static_assert(pack == 1 || pack == 2 || pack == 4 || pack == 8, "illegal vector load number");
+    const auto f = [&]() {
+        if constexpr(pack == 1) {
+            return *ptr;
+        } else if constexpr(pack == 2) {
+            return *((half2*) ptr);
+        } else if constexpr(pack == 4) {
+            return *((float2*) ptr);
+        } else {
+            return *((float4*) ptr);
+        }
+    };
+
+    if (ptr) {
+        auto v = f();
+        #pragma unroll
+        for (int i = 0; i < pack; ++i) {
+            dest[i] = ((half*) &v)[i];
+        }
+    } else {
+        #pragma unroll
+        for (int i = 0; i < pack; ++i) {
+            dest[i] = 0.0f;
+        }
+    }
+
+    // if constexpr(pack == 1) {
+    //     if (ptr)
+    //         *dest = *ptr;
+    //     else
+    //         *dest = 0.0f;
+    // } else if constexpr (pack == 2) {
+    //     // well hopefully this will be optimized away if dest points to registers
+    //     half2 v;
+    //     if (ptr)
+    //         v = *((half2*) ptr);
+    //     else {
+    //         v.x = 0.0f;
+    //         v.y = 0.0f;
+    //     }
+    //     dest[0] = v.x;
+    //     dest[1] = v.y;
+    // } else if constexpr (pack == 4) {
+    //     if (ptr) {
+    //         float2 v = *((float2*) ptr);
+    //         dest[0] = ((half*) &v)[0];
+    //         dest[1] = ((half*) &v)[1];
+    //         dest[2] = ((half*) &v)[2];
+    //         dest[3] = ((half*) &v)[3];
+    //     } else {
+    //         dest[0] = 0.0f;
+    //         dest[1] = 0.0f;
+    //         dest[2] = 0.0f;
+    //         dest[3] = 0.0f;
+    //     }
+    // } else {
+    //     float4 v;
+    //     if (ptr) {
+    //         v = *((float4*) ptr);
+    //         #pragma unroll
+    //         for (int i = 0; i < 8; ++i) {
+    //             dest[i] = ((half*) &v)[i];
+    //         }
+    //     }
+    //     else {
+    //         #pragma unroll
+    //         for (int i = 0; i < 8; ++i) {
+    //             dest[i] = 0.0f;
+    //         }
+    //     }
+    // }
+}
 
 __device__ inline void block_sync_lds()
 {

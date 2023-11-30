@@ -6,15 +6,15 @@
 #include "kernel_tiles.cpp"
 
 
-template <typename GemmInstance>
+template <typename GemmInstance, typename T>
 __global__ __launch_bounds__(GemmInstance::nthreads()) void gemm_kernel(
-    const float * __restrict__ A,
-    const float * __restrict__ B,
-    float * __restrict__ C,
+    const T * __restrict__ A,
+    const T * __restrict__ B,
+    T * __restrict__ C,
     int M, int K, int N
 ) {
     __shared__ char smem[GemmInstance::used_smem_bytes()];
-    auto inst = GemmInstance((float*) smem, A, B, C, M, K, N);
+    auto inst = GemmInstance((T*) smem, A, B, C, M, K, N);
     inst.run();
 }
 
@@ -31,11 +31,11 @@ __global__ __launch_bounds__(GemmInstance::nthreads()) void gemm_kernel_dyn_smem
 }
 
 
-template <typename GemmInstance>
+template <typename GemmInstance, typename T>
 bool run_kernel(
-    const float * __restrict__ A,
-    const float * __restrict__ B,
-    float * __restrict__ C,
+    const T * __restrict__ A,
+    const T * __restrict__ B,
+    T * __restrict__ C,
     int M, int K, int N
 ) {
     hipLaunchKernelGGL(gemm_kernel<GemmInstance>, GemmInstance::blocks(M, K, N), GemmInstance::threads(), 0, 0, A, B, C, M, K, N);

@@ -341,7 +341,7 @@ class KernelHandler:
                 compile_param = {}
                 compile_param.update(config.config)
                 compile_param['LAUNCH_NAME'] = launch_name
-                compile_param['warp_size'] = warp_size
+                compile_param['__WARP_SIZE_AMDGCN__'] = warp_size
 
                 compile_items.append(BuildConfig(
                     source_file=self.source_file,

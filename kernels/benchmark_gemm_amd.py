@@ -1,12 +1,12 @@
 # %%
 import torch
-from kernels.gemm import rocgemm
+# from kernels.gemm import rocgemm
 from kernels.gemm_hidet import hidet_simt
 from kernels.composable_kernel_gemm import ck_gemm, ck_gemm_dl
 from kernels.gemm_mfmav1 import mfma_gemmv1
 from kernels.gemm_mfmav2 import mfma_gemmv2
 from kernels.gemm_mfmav3 import mfma_gemmv3, mfma_gemmv3_5
-from kernels.rocwmma_gemm import wmma_gemm
+# from kernels.rocwmma_gemm import wmma_gemm
 from kernels.utils import Bench
 from triton.ops.matmul import matmul
 
