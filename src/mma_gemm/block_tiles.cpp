@@ -60,7 +60,7 @@ struct LdgBlockFrag {
         repeat<rep_m, stride_col, threads_per_row>([&](int im, int sc, int tr) {
             if (threadIdx.x == sc * threads_per_row + tr)
                 for (int i = 0; i < VecLoad; ++i)
-                    printf("%f ", ldg_regs[im][i]);
+                    printf("%f ", (float) ldg_regs[im][i]);
             __syncthreads();
             if (((sc == stride_col - 1 && stride_col > 1) || (im == rep_m - 1 && rep_m > 1) || (tr == threads_per_row - 1)) && threadIdx.x == 0) {
                 printf("\n");

@@ -3,6 +3,7 @@
 #include "hip_utils.hpp"
 #include "warp_tiles.cpp"
 #include "block_tiles.cpp"
+#include <hip/amd_detail/amd_hip_runtime.h>
 
 
 template <typename T, int BLOCK_M, int BLOCK_K, int BLOCK_N, int Warps>
@@ -230,6 +231,21 @@ struct Mfma_gemmv3_Pipeline1 : BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, W
 
         for (int k = 0; k < cdiv(this->k, BLOCK_K) - 1; ++k) {
             ldg_a.copy_g2r(gA);
+            // compiler bug I think: when vectorized pack=8, block_n = 32, block_m = 32, block_k = 16, warps = 2, inner_k = 16
+            //  uncommenting below removes error
+            
+            // __syncthreads();
+            // if (blockIdx.x == 0 && blockIdx.y == 0) {
+            //     if (threadIdx.x == 0) {
+            //         // repeat<BLOCK_M, BLOCK_K>([&](int i, int j) {
+            //         //     printf("%f ", (float) *sA.index(i, j));
+            //         //     if (j == BLOCK_K - 1) {
+            //         //         printf("\n");
+            //         //     }
+            //         // });
+            //         printf("\n");
+            //     }
+            // }
             __syncthreads();
             ldg_b.copy_g2r(gB);
             block_gemm.mma(sA, sB);

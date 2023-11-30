@@ -27,6 +27,14 @@ EXPORT bool LAUNCH_NAME(
     using BTile = MFMAF32_16x16x16F16_BTile<_InnerK>;
     using CTile = MFMAF32_16x16F16_CTile;
     using Mma = TileMMA<ATile, BTile, CTile>;
+    auto check_div = [](long t) {
+        return t % _VecLoad != 0;   
+    };
+    if (check_div(K) || check_div(N) || check_div((long) A) || check_div((long) B)) {
+        printf("at least one of args K, N, A, B not divisible by %d", _VecLoad);
+        return false;
+    }
+
     if (ver == 0) {
         using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
         using Gemm = Mfma_gemmv3<half, _BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
