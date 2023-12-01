@@ -106,7 +106,18 @@ target_compile_options(mfma_tools_test PRIVATE ${OpenMP_CXX_FLAGS})
 target_link_libraries(mfma_tools_test PRIVATE hip::device ${OpenMP_CXX_FLAGS})
 
 
+add_executable(test_buffer_addr
+    ${CMAKE_SOURCE_DIR}/src/misc/test_buffer_addr.cpp
+)
+
+
+target_include_directories(test_buffer_addr PRIVATE include)
+target_compile_options(test_buffer_addr PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(test_buffer_addr PRIVATE hip::device ${OpenMP_CXX_FLAGS})
+
+
 build_this("utils.cpp" OFF)
+# build_this("amd_buffer_addressing.cpp" OFF)
 build_this("misc/helloworld.cpp" OFF)
 build_this("misc/saxpy.cpp" OFF)
 build_this("misc/rocblas_gemm.cpp" OFF)
@@ -121,6 +132,7 @@ build_this("mma_gemm/mfma_gemmv2.cpp" OFF)
 build_this("mma_gemm/mfma_gemmv3.cpp" OFF)
 build_this("mma_gemm/mfma_gemmv3-5.cpp" OFF)
 build_this("mma_gemm/mfma_gemmf16v1.cpp" OFF)
+build_this("mma_gemm/mfma_gemmf16v2.cpp" OFF)
 build_this("mma_gemm/wmma_gemmv1.cpp" OFF)
 # build_this("mma_gemm/rocwmma_gemm.cpp" OFF)
 build_this("mma_gemm/layouts.cpp" OFF)

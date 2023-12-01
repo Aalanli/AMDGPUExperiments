@@ -2,6 +2,7 @@
 
 #include "hip_utils.hpp"
 #include "layouts.cpp"
+#include "amd_buffer_addressing.hpp"
 
 /// block level
 template <typename T, int BLOCK_A, int BLOCK_B, int Warps, int VecLoad>
@@ -17,7 +18,7 @@ struct LdgBlockFrag {
     T ldg_regs[Max<rep_m, 1>::value][VecLoad];
 
     template <typename GmemAcc>
-    __device__ void copy_g2r(GmemAcc& gA) {
+    __device__ inline void copy_g2r(GmemAcc& gA) {
         int row = threadIdx.x % threads_per_row;
         int col = threadIdx.x / threads_per_row;
         if constexpr(oversub) {
@@ -35,7 +36,7 @@ struct LdgBlockFrag {
     }
 
     template <typename SmemAcc>
-    __device__ void copy_r2s(SmemAcc& sA) {
+    __device__ inline void copy_r2s(SmemAcc& sA) {
         int row = threadIdx.x % threads_per_row;
         int col = threadIdx.x / threads_per_row;
         if constexpr(oversub) {
@@ -51,7 +52,7 @@ struct LdgBlockFrag {
         }
     }
 
-    __device__ void print_frag() {
+    __device__ inline void print_frag() {
         __syncthreads();
         if (threadIdx.x == 0) {
             printf("config: reps: %d, cols %d, rows %d, oversub %d, vecload %d\n", rep_m, stride_col, threads_per_row, oversub, VecLoad);
@@ -69,6 +70,63 @@ struct LdgBlockFrag {
         });
         __syncthreads();
     }
+};
+
+
+template <typename T, int BLOCK_A, int BLOCK_B, int Warps, int VecLoad>
+struct LdgBlockFragv2 {
+    static_assert(is_power_of_2(BLOCK_B) && BLOCK_B % VecLoad == 0, "");
+    static_assert(is_power_of_2(BLOCK_A), "");
+    static_assert(BLOCK_B <= Warps * warp_size, "not enough threads per row");
+    static constexpr int threads_per_row = BLOCK_B / VecLoad;
+    static constexpr int stride_col = Warps * warp_size / threads_per_row;
+    static constexpr int rep_m = BLOCK_A / stride_col;
+    static constexpr bool oversub = stride_col > BLOCK_A;
+    
+    T ldg_regs[Max<rep_m, 1>::value][VecLoad];
+    const T* warp_gA;
+    int lane_offset_a, lane_offset_b, dimA, dimB;
+
+    __device__ LdgBlockFragv2(const T* gA, int offset_a, int offset_b, int dimA, int dimB) : warp_gA(gA), dimA(dimA), dimB(dimB) {
+        this->lane_offset_b = offset_b + (threadIdx.x % threads_per_row) * VecLoad;
+        this->lane_offset_a = offset_a + threadIdx.x / threads_per_row;
+    }
+
+    __device__ void inc_offset(int a, int b) {
+        lane_offset_a += a;
+        lane_offset_b += b;
+    }
+
+    __device__ inline void copy_g2r() {
+        for (int i = 0; i < Max<rep_m, 1>::value; ++i) {
+            bool inbounds = lane_offset_a < dimA && lane_offset_b < dimB;
+            amd_buffer_load_invalid_element_set_zero<T, VecLoad>(
+                warp_gA, 
+                (lane_offset_a * dimB + lane_offset_b), 
+                inbounds, 
+                dimA * dimB, 
+                &ldg_regs[i][0]);
+            inc_offset(stride_col, 0);
+        }
+    }
+
+    template <typename SmemAcc>
+    __device__ inline void copy_r2s(SmemAcc& sA) {
+        int row = threadIdx.x % threads_per_row;
+        int col = threadIdx.x / threads_per_row;
+        if constexpr(oversub) {
+            if (col < BLOCK_A) {
+                for (int j = 0; j < VecLoad; ++j)
+                    *sA.index(col, row * VecLoad + j) = ldg_regs[0][j];
+            }
+        } else {
+            for (int i = 0; i < rep_m; ++i)
+                // assume that the compiler can detect consecutive memory accesses and vectorize them
+                for (int j = 0; j < VecLoad; ++j)
+                    *sA.index(i * stride_col + col, row * VecLoad + j) = ldg_regs[i][j];            
+        }
+    }
+
 };
 
 
@@ -105,14 +163,14 @@ struct BlockGemmBase {
 
     CTile Ctiles[rep_m][rep_n];
 
-    __device__ void fill_c(float v) {
+    __device__ inline void fill_c(float v) {
         repeat<rep_m, rep_n>([&](int i, int j) {
             Ctiles[i][j].fill(v);
         }); 
     }
 
     template <typename GMemC>
-    __device__ void copy_r2g(GMemC &gC) {
+    __device__ inline void copy_r2g(GMemC &gC) {
         int warp = threadIdx.x / warp_size;
         int warp_m = warp % warps_m;
         int warp_n = warp / warps_m;
@@ -139,7 +197,7 @@ struct BlockGemmV1 : BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTil
     BTile Btiles[super::rep_n];
 
     template <typename SMemA, typename SMemB>
-    __device__ void mma(SMemA &sA, SMemB &sB) {
+    __device__ inline void mma(SMemA &sA, SMemB &sB) {
         int warp = threadIdx.x / warp_size;
         int warp_m = warp % super::warps_m;
         int warp_n = warp / super::warps_m;
@@ -190,7 +248,7 @@ struct BlockGemmV1_Init : BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile,
     BTile Btiles[super::rep_n];
 
     template <typename SMemA, typename SMemB>
-    __device__ void mma(SMemA &sA, SMemB &sB) {
+    __device__ inline void mma(SMemA &sA, SMemB &sB) {
         int warp = __builtin_amdgcn_readfirstlane(threadIdx.x / warp_size);
         int warp_m = warp % super::warps_m;
         int warp_n = warp / super::warps_m;
@@ -247,7 +305,7 @@ struct BlockGemmV2 : BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTil
     BTile Btiles[2][super::rep_n];
 
     template <typename SMemA>
-    __device__ void load_atile(SMemA &sA, int idx, int k_offset) {
+    __device__ inline void load_atile(SMemA &sA, int idx, int k_offset) {
         // lol who cares about DRY?
         int warp = threadIdx.x / warp_size;
         int warp_m = warp % super::warps_m;
@@ -265,7 +323,7 @@ struct BlockGemmV2 : BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTil
     }
 
     template <typename SMemB>
-    __device__ void load_btile(SMemB &sB, int idx, int k_offset) {
+    __device__ inline void load_btile(SMemB &sB, int idx, int k_offset) {
         int warp = threadIdx.x / warp_size;
         int warp_m = warp % super::warps_m;
         int warp_n = warp / super::warps_m;
@@ -282,7 +340,7 @@ struct BlockGemmV2 : BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTil
     }
 
     template <typename SMemA, typename SMemB>
-    __device__ void mma(SMemA &sA, SMemB &sB) {
+    __device__ inline void mma(SMemA &sA, SMemB &sB) {
         int warp = threadIdx.x / warp_size;
         int warp_m = warp % super::warps_m;
         int warp_n = warp / super::warps_m;

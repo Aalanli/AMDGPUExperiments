@@ -286,3 +286,14 @@ __device__ inline void block_sync_lds()
     " ::);
 
 }
+
+using int32x2_t = __attribute__( (__vector_size__(2 * sizeof(int)) )) int;
+using int32x4_t = __attribute__( (__vector_size__(4 * sizeof(int)) )) int;
+
+
+using float2_t = __attribute__( (__vector_size__(2 * sizeof(float)) )) float;
+using float4_t = __attribute__( (__vector_size__(4 * sizeof(float)) )) float;
+using float16_t = __attribute__( (__vector_size__(16 * sizeof(float)) )) float;
+using half2_t = __attribute__( (__vector_size__(2 * sizeof(_Float16)) )) _Float16;
+using half4_t = __attribute__( (__vector_size__(4 * sizeof(_Float16)) )) _Float16;
+
