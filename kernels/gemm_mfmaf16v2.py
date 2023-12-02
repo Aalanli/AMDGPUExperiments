@@ -4,8 +4,8 @@ import torch
 from kernels import KernelHandler, KernelConfig
 
 def generate_configs():
-    for block_n in [64, 128]:
-        for block_m in [64, 128]:
+    for block_n in [64, 128, 256]:
+        for block_m in [64, 128, 256]:
             for block_k in [8, 16, 32, 64]:
                 for inner_k in [16, 32]:
                     for vec_load in [1, 2, 4, 8]:
@@ -35,12 +35,12 @@ configs = [
 
 kernel = KernelHandler(
     source_file='src/mma_gemm/mfma_gemmf16v2.cpp', 
-    compile_configs=configs,
+    compile_configs=list(generate_configs()),
     keys=['m', 'k', 'n', 'ver'],
     platform='amd',
-    disable_benchmark=True,
-    ignore_compile_errors=False,
-    parallel_compile=False,
+    disable_benchmark=False,
+    ignore_compile_errors=True,
+    parallel_compile=True,
     arch='gfx90a',
 )
 
@@ -63,18 +63,20 @@ def show_err(x):
 
 if __name__ == '__main__':
     # peak: 0.19424
-    d = 2048
+    d = 1024
     # a = torch.arange(0, d, device='cuda')[None, :] + torch.arange(0, d, device='cuda')[:, None] * d
     # a = a.to(torch.half)
     # b = torch.eye(d, device='cuda').to(torch.half)
     a = torch.randn([d, d], device='cuda', dtype=torch.half)
     b = torch.randn([d, d], device='cuda', dtype=torch.half)
-    c1 = a @ b
-    c = mfma_gemmv2f16(a, b, ver=2)
-    err = (c1 - c).abs()
-    print(c)
-    print(err)
-    print(err.max())
-    # from kernels.build_kernel import do_bench
-    # print(do_bench(lambda: mfma_gemmv2f16(a, b, ver=0)))
-    # print(do_bench(lambda: mfma_gemmv2f16(a, b, ver=1)))
+    # c1 = a @ b
+    # c = mfma_gemmv2f16(a, b, ver=2)
+    # err = (c1 - c).abs()
+    # print(c)
+    # print(err)
+    # print(err.max())
+    from kernels.build_kernel import do_bench
+    print(do_bench(lambda: mfma_gemmv2f16(a, b, ver=0)))
+    print(do_bench(lambda: mfma_gemmv2f16(a, b, ver=1)))
+    print(do_bench(lambda: mfma_gemmv2f16(a, b, ver=2)))
+    print(do_bench(lambda: mfma_gemmv2f16(a, b, ver=3)))

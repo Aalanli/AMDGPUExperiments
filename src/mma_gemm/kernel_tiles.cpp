@@ -173,6 +173,72 @@ struct Mfma_gemmv3 : BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
     }
 };
 
+
+template <typename T,
+          int BLOCK_M, 
+          int BLOCK_K, 
+          int BLOCK_N, 
+          int VecLoad, 
+          int InnerK, 
+          int Warps,
+          typename SharedMemLayoutA,
+          typename SharedMemLayoutB,
+          typename GemmInstance>
+struct Mfma_gemmv3_Ldgv2 : BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps> {
+    using BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps>::BasicGemmInstance;
+
+    using super = BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps>;
+
+    static constexpr int used_smem_bytes() {
+        return sizeof(T) * (SharedMemLayoutA::s1 * SharedMemLayoutA::s2 + SharedMemLayoutB::s1 * SharedMemLayoutB::s2);
+    }
+
+    __device__ inline void run() {
+        const int offset_m = blockIdx.x * BLOCK_M;
+        const int offset_n = blockIdx.y * BLOCK_N;
+
+        static_assert(BLOCK_K % VecLoad == 0, "");
+        static_assert(BLOCK_K % InnerK == 0, "");
+
+        // static_assert(SharedMemLayoutA::s1 == BLOCK_M && SharedMemLayoutA::s2 == BLOCK_K, "");
+        auto sA = LayoutAccessor<SharedMemLayoutA, T>(this->smem);
+
+        // static_assert(SharedMemLayoutB::s1 == BLOCK_K && SharedMemLayoutB::s2 == BLOCK_N, "");
+        auto sB = LayoutAccessor<SharedMemLayoutB, T>(this->smem + SharedMemLayoutA::s1 * SharedMemLayoutA::s2);
+
+        static_assert(
+            GemmInstance::block_m == BLOCK_M && 
+            GemmInstance::block_n == BLOCK_N && 
+            GemmInstance::block_k == BLOCK_K, ""
+        );
+
+        LdgBlockFragv2<T, BLOCK_M, BLOCK_K, Warps, VecLoad> ldg_a(this->a, offset_m, 0, this->m, this->k);
+        LdgBlockFragv2<T, BLOCK_K, BLOCK_N, Warps, VecLoad> ldg_b(this->b, 0, offset_n, this->k, this->n);
+        
+        GemmInstance block_gemm;
+        block_gemm.fill_c(0.0f);
+
+        for (int k = 0; k < cdiv(this->k, BLOCK_K); ++k) {
+            ldg_a.copy_g2r();
+            ldg_b.copy_g2r();
+            ldg_a.copy_r2s(sA);
+            ldg_b.copy_r2s(sB);
+            __syncthreads();
+            // print_acc(sA);
+
+            // __syncthreads();
+            block_gemm.mma(sA, sB);
+            __syncthreads();
+            ldg_a.inc_offset(0, BLOCK_K);
+            ldg_b.inc_offset(BLOCK_K, 0);
+
+        }
+        RowAccessor<T> gC_ = {this->c, this->m, this->n};
+        OffsetAccessor<RowAccessor<T>> gC = {gC_, offset_m, offset_n};
+        block_gemm.copy_r2g(gC);
+    }
+};
+
 template <typename T,
           int BLOCK_M, 
           int BLOCK_K, 

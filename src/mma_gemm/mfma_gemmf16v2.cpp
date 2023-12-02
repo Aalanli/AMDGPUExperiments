@@ -40,6 +40,11 @@ EXPORT bool LAUNCH_NAME(
     }
     if (ver == 2) {
         using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+        using Gemm = Mfma_gemmv3_Ldgv2<half, _BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
+        return run_kernel<Gemm>(A, B, C, M, K, N);
+    }
+    if (ver == 3) {
+        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
         using Gemm = Mfma_gemmv3_Pipeline1_E_Ldgv2<half, _BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
         return run_kernel<Gemm>(A, B, C, M, K, N);
     }
@@ -47,4 +52,8 @@ EXPORT bool LAUNCH_NAME(
     printf("ver %d does not exist\n", ver);
     return false;
 }
+
+
+
+
 

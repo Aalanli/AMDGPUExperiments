@@ -32,7 +32,7 @@ kernel = KernelHandler(
     disable_benchmark=False,
     ignore_compile_errors=True,
     parallel_compile=True,
-    arch=('gfx90a',),
+    arch='gfx90a',
 )
 
 def mfma_gemmv1(a: torch.Tensor, b: torch.Tensor, version: int = 0) -> torch.Tensor:

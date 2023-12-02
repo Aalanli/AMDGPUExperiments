@@ -72,7 +72,7 @@ hidet_kernel = KernelHandler(
     disable_benchmark=False,
     ignore_compile_errors=True,
     parallel_compile=True,
-    arch=('gfx90a',),
+    arch='gfx90a',
 )
 
 

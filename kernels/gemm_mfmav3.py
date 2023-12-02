@@ -41,7 +41,7 @@ kernel16x16 = KernelHandler(
     disable_benchmark=False,
     ignore_compile_errors=True,
     parallel_compile=True,
-    arch=('gfx90a',),
+    arch='gfx90a',
 )
 
 def mfma_gemmv3(a: torch.Tensor, b: torch.Tensor, ver: int = 0, so_name: Optional[str] = None) -> torch.Tensor:
@@ -90,7 +90,7 @@ kernel32x32 = KernelHandler(
     disable_benchmark=False,
     ignore_compile_errors=True,
     parallel_compile=True,
-    arch=('gfx90a',),
+    arch='gfx90a',
 )
 
 

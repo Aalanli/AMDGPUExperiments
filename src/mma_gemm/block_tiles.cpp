@@ -102,11 +102,12 @@ struct LdgBlockFragv2 {
             bool inbounds = lane_offset_a < dimA && lane_offset_b < dimB;
             amd_buffer_load_invalid_element_set_zero<T, VecLoad>(
                 warp_gA, 
-                (lane_offset_a * dimB + lane_offset_b), 
+                ((lane_offset_a + i * stride_col) * dimB + lane_offset_b), 
                 inbounds, 
                 dimA * dimB, 
                 &ldg_regs[i][0]);
-            inc_offset(stride_col, 0);
+            // if (rep_m > 0)
+            //     inc_offset(stride_col, 0);
         }
     }
 

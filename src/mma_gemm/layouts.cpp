@@ -110,3 +110,18 @@ struct OffsetAccessor {
         offset_b += b;
     }
 };
+
+template <typename A>
+__device__ void print_acc(A &acc) {
+    __syncthreads();
+    if (threadIdx.x == 0) {
+        repeat<A::s1, A::s2>([&](int i, int j) {
+            printf("%f ", (float) *acc.index(i, j));
+            if (j == A::s2 - 1) {
+                printf("\n");
+            }
+
+        });
+    }
+    __syncthreads();
+}
