@@ -301,8 +301,8 @@ struct MFMAF32_32x32x8F16_ATile_Packed2 {
         repeat<rep_k, 2>([&](int i, int j) {
             half2 *ptr = (half2*) sA.index(lane % 32, (lane / 32) * 4 + i * mma_k + j * 2);
             half2 val = *ptr;
-            regs[i][j * 2] = val.x;
-            regs[i][j * 2 + 1] = val.y;
+            regs[i][j * 2] = *((half*) &val.x);
+            regs[i][j * 2 + 1] = *((half*) &val.y);
         });
     }
 };
@@ -324,8 +324,8 @@ struct MFMAF32_32x32x8F16_BTile_Packed2 {
         repeat<rep_k, 2>([&](int i, int j) {
             half2* ptr = (half2*) sB.index((lane / 32) * 4 + i * mma_k + j * 2, lane % 32);
             half2 value = *ptr;
-            regs[i][j * 2] = value.x;
-            regs[i][j * 2 + 1] = value.y;
+            regs[i][j * 2] = *((half*) &value.x);
+            regs[i][j * 2 + 1] = *((half*) &value.y);
         });
     }
 };
