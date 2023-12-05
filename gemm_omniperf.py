@@ -8,11 +8,12 @@ from kernels.gemm_mfmav2 import mfma_gemmv2
 from kernels.gemm_mfmav3 import mfma_gemmv3, mfma_gemmv3_5
 from kernels.gemm_mfmaf16_v1 import mfma_gemmv1f16
 from kernels.gemm_mfmaf16v2 import mfma_gemmv2f16
+from kernels.gemm_mfmaf16v3 import mfma_gemmv3f16
 from kernels.composable_kernel_gemmf16 import ck_gemmf16
 from kernels.rocwmma_gemm import wmma_gemm
 from triton.ops.matmul import matmul
 
-d = 2048
+d = 4096
 dtype = torch.half
 a = torch.empty([d, d], device='cuda', dtype=dtype)
 b = torch.empty([d, d], device='cuda', dtype=dtype)
@@ -34,8 +35,10 @@ b = torch.empty([d, d], device='cuda', dtype=dtype)
 # wmma_gemm(a, b)
 # matmul(a, b)
 
-mfma_gemmv2f16(a, b, ver=0)
-mfma_gemmv2f16(a, b, ver=1)
-ck_gemmf16(a, b, ver=93)
+# mfma_gemmv2f16(a, b, ver=1)
+# mfma_gemmv2f16(a, b, ver=3)
+mfma_gemmv3f16(a, b, ver=3)
+
+# ck_gemmf16(a, b, ver=56)
 
 # %%

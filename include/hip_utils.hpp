@@ -110,6 +110,16 @@ constexpr inline bool is_power_of_2(int n) {
     return next_power_of_2(n) == n;
 }
 
+
+constexpr inline int ilog2(int n) {
+    if (n <= 1) {
+        return 0;
+    } else{
+        return 1 + ilog2(n / 2);
+    }
+}
+
+
 constexpr inline int max_pack_size(const int n) {
     if (n <= 0) {
         return 1;

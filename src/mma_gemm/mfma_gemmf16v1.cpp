@@ -27,7 +27,6 @@ EXPORT bool LAUNCH_NAME(
         using ATile = MFMAF32_16x16x16F16_ATile<_InnerK>;
         using BTile = MFMAF32_16x16x16F16_BTile<_InnerK>;
         using CTile = MFMAF32_16x16F16_CTile;
-        using Mma = TileMMA<ATile, BTile, CTile>;
         auto check_div = [](long t) {
             return t % _VecLoad != 0;   
         };
@@ -37,20 +36,20 @@ EXPORT bool LAUNCH_NAME(
         }
 
         if (ver == 0) {
-            using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+            using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, _Warps>;
             using Gemm = Mfma_gemmv3<half, _BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
             return run_kernel<Gemm>(A, B, C, M, K, N);
         }
         if (ver == 1) {
             // pipeline outer loop with stages 1
-            using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+            using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, _Warps>;
             using Gemm = Mfma_gemmv3_Pipeline1_E<half, _BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
             return run_kernel<Gemm>(A, B, C, M, K, N);
         }
         if (ver == 2) {
             using SharedMemLayoutA = RowLayout<_BLOCK_M, _BLOCK_K + 1>;
             using SharedMemLayoutB = RowLayout<_BLOCK_K, _BLOCK_N + 1>;
-            using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+            using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, _Warps>;
             using Gemm = Mfma_gemmv3<half, _BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
             return run_kernel<Gemm>(A, B, C, M, K, N);
         }

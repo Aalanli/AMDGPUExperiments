@@ -481,7 +481,7 @@ class KernelHandler:
             if not func(*args):
                 raise RuntimeError(f'Kernel launch failed')
             return
-        if runtime_key in self.kernel_map:
+        if runtime_key in self.kernel_map and self.kernel_map[runtime_key] in self.launch_funcs:
             func = self.launch_funcs[self.kernel_map[runtime_key]]
             if not func(*args):
                 raise RuntimeError(f'Kernel launch {self.kernel_map[runtime_key]} failed')
@@ -489,24 +489,34 @@ class KernelHandler:
             # benchmark
             if runtime_key not in self.kernel_times:
                 self.kernel_times[runtime_key] = {}
+            all_best_so_name = None
+            all_best_time = float('inf')
             best_so_name = None
             best_time = float('inf')
+
             for so_name, func in tqdm(self.launch_funcs.items(), desc='Benchmarking kernels'):
                 if so_name in self.kernel_times[runtime_key]:
                     time = self.kernel_times[runtime_key][so_name]
-                    if time < best_time:
-                        best_time = time
+                else:
+                    if not func(*args):
+                        continue
+                    time = do_bench(lambda: func(*args))
+                
+                if so_name not in self.kernel_times[runtime_key]:
+                    self.kernel_times[runtime_key][so_name] = time
+                
+                if time < all_best_time:
+                    all_best_time = time
+                    all_best_so_name = so_name
+                    if so_name in self.launch_funcs:
                         best_so_name = so_name
-                    continue
-                if not func(*args):
-                    continue
-                time = do_bench(lambda: func(*args))
-                self.kernel_times[runtime_key][so_name] = time
-                if time < best_time:
-                    best_time = time
-                    best_so_name = so_name
+                        best_time = time
+                
             if best_so_name is None:
                 raise RuntimeError('All kernels failed')
+            if all_best_time < best_time:
+                print(f'Warning: best kernel {best_so_name} is not the best out of all kernels, best one is {all_best_so_name}')
+
             self.kernel_map[runtime_key] = best_so_name
             func(*args)
             self.dump_meta()

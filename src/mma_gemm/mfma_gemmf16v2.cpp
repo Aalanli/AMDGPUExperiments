@@ -27,24 +27,32 @@ EXPORT bool LAUNCH_NAME(
     using ATile = MFMAF32_32x32x8F16_ATile<_InnerK>;
     using BTile = MFMAF32_32x32x8F16_BTile<_InnerK>;
     using CTile = MFMAF32_32x32F16_CTile;
-    using Mma = TileMMA<ATile, BTile, CTile>;
     if (ver == 0) {
-        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, _Warps>;
         using Gemm = Mfma_gemmv3<half, _BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
         return run_kernel<Gemm>(A, B, C, M, K, N);
     }
     if (ver == 1) {
-        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, _Warps>;
         using Gemm = Mfma_gemmv3_Pipeline1_E<half, _BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
         return run_kernel<Gemm>(A, B, C, M, K, N);
     }
     if (ver == 2) {
-        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, _Warps>;
         using Gemm = Mfma_gemmv3_Ldgv2<half, _BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
         return run_kernel<Gemm>(A, B, C, M, K, N);
     }
     if (ver == 3) {
-        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, _Warps>;
+        using Gemm = Mfma_gemmv3_Pipeline1_E_Ldgv2<half, _BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
+        return run_kernel<Gemm>(A, B, C, M, K, N);
+    }
+    if (ver == 4) {
+        // using ATile = MFMAF32_32x32x8F16_ATile_Packed2<_InnerK>;
+        // using BTile = MFMAF32_32x32x8F16_BTile_Packed2<_InnerK>;
+        // using Mma = TileMMA<ATile, BTile, CTile>;
+
+        using GemmInstance = BlockGemmV2<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, _Warps>;
         using Gemm = Mfma_gemmv3_Pipeline1_E_Ldgv2<half, _BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
         return run_kernel<Gemm>(A, B, C, M, K, N);
     }

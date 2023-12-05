@@ -86,6 +86,15 @@ target_include_directories(ck_gemmf16 PRIVATE include)
 target_compile_options(ck_gemmf16 PRIVATE ${OpenMP_CXX_FLAGS})
 target_link_libraries(ck_gemmf16 PRIVATE hip::device composable_kernel::device_operations ${OpenMP_CXX_FLAGS})
 
+add_library(
+    ck_gemmf16_dev SHARED
+    ${CMAKE_SOURCE_DIR}/src/mma_gemm/ck_mfma_gemmf16.cpp    
+)
+
+target_include_directories(ck_gemmf16_dev PRIVATE include)
+target_compile_options(ck_gemmf16_dev PRIVATE ${OpenMP_CXX_FLAGS})
+target_link_libraries(ck_gemmf16_dev PRIVATE hip::device composable_kernel::device_operations ${OpenMP_CXX_FLAGS})
+
 
 add_executable(gemm
     ${CMAKE_SOURCE_DIR}/src/misc/gemm.cpp
@@ -133,6 +142,7 @@ build_this("mma_gemm/mfma_gemmv3.cpp" OFF)
 build_this("mma_gemm/mfma_gemmv3-5.cpp" OFF)
 build_this("mma_gemm/mfma_gemmf16v1.cpp" OFF)
 build_this("mma_gemm/mfma_gemmf16v2.cpp" OFF)
+build_this("mma_gemm/mfma_gemmf16v3.cpp" OFF)
 build_this("mma_gemm/wmma_gemmv1.cpp" OFF)
 # build_this("mma_gemm/rocwmma_gemm.cpp" OFF)
 build_this("mma_gemm/layouts.cpp" OFF)

@@ -283,6 +283,54 @@ struct MFMAF32_32x32x8F16_BTile {
 };
 
 
+template <int BLOCK_K>
+struct MFMAF32_32x32x8F16_ATile_Packed2 {
+    static constexpr int tile_m = 32;
+    static constexpr int tile_k = BLOCK_K;
+
+    static constexpr int mma_m = 32;
+    static constexpr int mma_k = 8;
+    static constexpr int rep_k = BLOCK_K / mma_k;
+    static_assert(is_power_of_2(BLOCK_K) && BLOCK_K >= mma_k);
+
+    half4_t regs[rep_k];
+    template <typename SmemAcc>
+    __device__ inline void copy_s2r(SmemAcc& sA) {
+        int lane = threadIdx.x % warp_size;
+
+        repeat<rep_k, 2>([&](int i, int j) {
+            half2 *ptr = (half2*) sA.index(lane % 32, (lane / 32) * 4 + i * mma_k + j * 2);
+            half2 val = *ptr;
+            regs[i][j * 2] = val.x;
+            regs[i][j * 2 + 1] = val.y;
+        });
+    }
+};
+
+template <int BLOCK_K>
+struct MFMAF32_32x32x8F16_BTile_Packed2 {
+    static constexpr int tile_n = 32;
+    static constexpr int tile_k = BLOCK_K;
+
+    static constexpr int mma_k = 8;
+    static constexpr int mma_n = 32;
+    static constexpr int rep_k = BLOCK_K / mma_k;
+    static_assert(is_power_of_2(BLOCK_K) && BLOCK_K >= mma_k);
+
+    half4_t regs[rep_k];
+    template <typename SmemAcc>
+    __device__ inline void copy_s2r(SmemAcc& sB) {
+        int lane = threadIdx.x % warp_size;
+        repeat<rep_k, 2>([&](int i, int j) {
+            half2* ptr = (half2*) sB.index((lane / 32) * 4 + i * mma_k + j * 2, lane % 32);
+            half2 value = *ptr;
+            regs[i][j * 2] = value.x;
+            regs[i][j * 2 + 1] = value.y;
+        });
+    }
+};
+
+
 struct MFMAF32_32x32F16_CTile {
     using float16 = __attribute__( (__vector_size__(16 * sizeof(float)) )) float;
     float16 regs;
@@ -430,6 +478,19 @@ template <int BLOCK_K>
 struct TileMMA<MFMAF32_32x32x8F16_ATile<BLOCK_K>, MFMAF32_32x32x8F16_BTile<BLOCK_K>, MFMAF32_32x32F16_CTile> {
     __device__ inline static void mma(MFMAF32_32x32x8F16_ATile<BLOCK_K> &atile, MFMAF32_32x32x8F16_BTile<BLOCK_K> &btile, MFMAF32_32x32F16_CTile &ctile) {
         constexpr int rep_k = MFMAF32_32x32x8F16_ATile<BLOCK_K>::rep_k;
+        for (int i = 0; i < rep_k; ++i) {
+            ctile.regs = __builtin_amdgcn_mfma_f32_32x32x8f16(
+                atile.regs[i], btile.regs[i], ctile.regs, 0, 0, 0
+            );
+        }
+    }
+};
+
+
+template <int BLOCK_K>
+struct TileMMA<MFMAF32_32x32x8F16_ATile_Packed2<BLOCK_K>, MFMAF32_32x32x8F16_BTile_Packed2<BLOCK_K>, MFMAF32_32x32F16_CTile> {
+    __device__ inline static void mma(MFMAF32_32x32x8F16_ATile_Packed2<BLOCK_K> &atile, MFMAF32_32x32x8F16_BTile_Packed2<BLOCK_K> &btile, MFMAF32_32x32F16_CTile &ctile) {
+        constexpr int rep_k = MFMAF32_32x32x8F16_ATile_Packed2<BLOCK_K>::rep_k;
         for (int i = 0; i < rep_k; ++i) {
             ctile.regs = __builtin_amdgcn_mfma_f32_32x32x8f16(
                 atile.regs[i], btile.regs[i], ctile.regs, 0, 0, 0

@@ -71,7 +71,7 @@ struct Mfma_gemmv3_ref : BasicGemmInstance<T, BLOCK_M, BLOCK_K, BLOCK_N, Warps> 
         using BTile = MFMAF32_16x16F32_BTile<InnerK>;
         using CTile = MFMAF32_16x16F32_CTile;
         using Mma = TileMMA<ATile, BTile, CTile>;
-        using GemmInstance = BlockGemmV1<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Mma, Warps>;
+        using GemmInstance = BlockGemmV1<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps>;
 
         using LdgA = LdgBlockFrag<T, BLOCK_M, BLOCK_K, Warps, VecLoad>;
         using LdgB = LdgBlockFrag<T, BLOCK_K, BLOCK_N, Warps, VecLoad>;

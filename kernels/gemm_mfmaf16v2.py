@@ -6,8 +6,8 @@ from kernels import KernelHandler, KernelConfig
 def generate_configs():
     for block_n in [64, 128, 256]:
         for block_m in [64, 128, 256]:
-            for block_k in [8, 16, 32, 64]:
-                for inner_k in [16, 32]:
+            for block_k in [32, 64]:
+                for inner_k in [8]:
                     for vec_load in [1, 2, 4, 8]:
                         for smem_pack in [1, 4]:
                             if block_k % inner_k != 0: continue
@@ -63,14 +63,14 @@ def show_err(x):
 
 if __name__ == '__main__':
     # peak: 0.19424
-    d = 1024
+    d = 2048
     # a = torch.arange(0, d, device='cuda')[None, :] + torch.arange(0, d, device='cuda')[:, None] * d
     # a = a.to(torch.half)
     # b = torch.eye(d, device='cuda').to(torch.half)
     a = torch.randn([d, d], device='cuda', dtype=torch.half)
     b = torch.randn([d, d], device='cuda', dtype=torch.half)
     # c1 = a @ b
-    # c = mfma_gemmv2f16(a, b, ver=2)
+    # c = mfma_gemmv2f16(a, b, ver=0)
     # err = (c1 - c).abs()
     # print(c)
     # print(err)
@@ -80,3 +80,6 @@ if __name__ == '__main__':
     print(do_bench(lambda: mfma_gemmv2f16(a, b, ver=1)))
     print(do_bench(lambda: mfma_gemmv2f16(a, b, ver=2)))
     print(do_bench(lambda: mfma_gemmv2f16(a, b, ver=3)))
+    # print(do_bench(lambda: mfma_gemmv2f16(a, b, ver=4)))
+    # print(do_bench(lambda: mfma_gemmv2f16(a, b, ver=3, so_name='_BLOCK_K=32__BLOCK_M=256__BLOCK_N=64__InnerK=8__SMEM_INNER_SWIZZLE=1__VecLoad=8__Warps=4.so')))
+    # print(do_bench(lambda: mfma_gemmv2f16(a, b, ver=4)))

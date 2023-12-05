@@ -18,39 +18,38 @@ EXPORT bool LAUNCH_NAME(
     using ATile = MFMAF32_16x16F32_ATile<_InnerK>;
     using BTile = MFMAF32_16x16F32_BTile<_InnerK>;
     using CTile = MFMAF32_16x16F32_CTile;
-    using Mma = TileMMA<ATile, BTile, CTile>;
     if (ver == 0) {
-        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, _Warps>;
         using Gemm = Mfma_gemmv3<float, _BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
         return run_kernel<Gemm>(A, B, C, M, K, N);
     }
     if (ver == 1) {
         // pipeline inner shared to register loop
-        using GemmInstance = BlockGemmV2<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+        using GemmInstance = BlockGemmV2<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, _Warps>;
         using Gemm = Mfma_gemmv3<float, _BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
         return run_kernel<Gemm>(A, B, C, M, K, N);
     }
     if (ver == 2) {
         // pipeline outer loop with stages 1
-        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, _Warps>;
         using Gemm = Mfma_gemmv3_Pipeline1<float, _BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
         return run_kernel<Gemm>(A, B, C, M, K, N);
     }
     if (ver == 3) {
         // pipeline outer loop with stages 1, pipeline inner loop as well
-        using GemmInstance = BlockGemmV2<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+        using GemmInstance = BlockGemmV2<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, _Warps>;
         using Gemm = Mfma_gemmv3_Pipeline1<float, _BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
         return run_kernel<Gemm>(A, B, C, M, K, N);
     }
     if (ver == 4) {
         // pipeline outer loop with stages 1
-        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+        using GemmInstance = BlockGemmV1<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, _Warps>;
         using Gemm = Mfma_gemmv3_Pipeline1_E<float, _BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
         return run_kernel<Gemm>(A, B, C, M, K, N);
     }
     if (ver == 5) {
         // pipeline outer loop with stages 1
-        using GemmInstance = BlockGemmV1_Init<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, Mma, _Warps>;
+        using GemmInstance = BlockGemmV1_Init<_BLOCK_M, _BLOCK_K, _BLOCK_N, ATile, BTile, CTile, _Warps>;
         using Gemm = Mfma_gemmv3_Pipeline1_E2<float, _BLOCK_M, _BLOCK_K, _BLOCK_N, _VecLoad, _InnerK, _Warps, SharedMemLayoutA, SharedMemLayoutB, GemmInstance>;
         return run_kernel<Gemm>(A, B, C, M, K, N);
     }

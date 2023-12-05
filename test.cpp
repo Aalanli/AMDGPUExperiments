@@ -107,14 +107,21 @@ struct ComposeLayout {
 #define _BLOCK_K 32
 #define _BLOCK_N 64
 
+struct Test {
+    Test() {
+        printf("Test\n");
+    }
+};
+
 int main() {
-    constexpr int inner_pack = 4;
-    using InnerPackedLayout = ComposeLayout<RowLayout<1, inner_pack / 2>, TransposeLayout<RowLayout<1, 2>>>;
-    using SharedMemLayoutB = ComposeLayout<SwizzleLayout<_BLOCK_K / 2, _BLOCK_N / (inner_pack / 2)>, InnerPackedLayout>;
-    repeat<_BLOCK_K, _BLOCK_N>([](int i, int j) {
-        printf("%d ", SharedMemLayoutB::index(i, j));
-        if (j == _BLOCK_N - 1) {
-            printf("\n");
-        }
-    }); 
+    // constexpr int inner_pack = 4;
+    // using InnerPackedLayout = ComposeLayout<RowLayout<1, inner_pack / 2>, TransposeLayout<RowLayout<1, 2>>>;
+    // using SharedMemLayoutB = ComposeLayout<SwizzleLayout<_BLOCK_K / 2, _BLOCK_N / (inner_pack / 2)>, InnerPackedLayout>;
+    // repeat<_BLOCK_K, _BLOCK_N>([](int i, int j) {
+    //     printf("%d ", SharedMemLayoutB::index(i, j));
+    //     if (j == _BLOCK_N - 1) {
+    //         printf("\n");
+    //     }
+    // }); 
+    Test t;
 }

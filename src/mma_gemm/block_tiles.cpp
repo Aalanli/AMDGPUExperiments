@@ -1,8 +1,9 @@
 #pragma once
 
 #include "hip_utils.hpp"
-#include "layouts.cpp"
 #include "amd_buffer_addressing.hpp"
+#include "layouts.cpp"
+#include "warp_tiles.cpp"
 
 /// block level
 template <typename T, int BLOCK_A, int BLOCK_B, int Warps, int VecLoad>
@@ -139,7 +140,7 @@ template <int BLOCK_M,
           typename BTile, 
           typename CTile, 
           int Warps>
-struct BlockGemmBase {
+struct BlockGemmBaseV1 {
     static constexpr int tile_m = ATile::tile_m;
     static constexpr int tile_k = ATile::tile_k;
     static_assert(ATile::tile_k == BTile::tile_k, "");    
@@ -180,8 +181,8 @@ struct BlockGemmBase {
             Ctiles[i][j].copy_r2g(gC_acc);
         });
     }
-
 };
+
 
 template <int BLOCK_M, 
           int BLOCK_K, 
@@ -189,10 +190,59 @@ template <int BLOCK_M,
           typename ATile, 
           typename BTile, 
           typename CTile, 
-          typename MMA,
+          int WarpM,
+          int WarpN>
+struct BlockGemmBaseV2 {
+    static constexpr int tile_m = ATile::tile_m;
+    static constexpr int tile_k = ATile::tile_k;
+    static_assert(ATile::tile_k == BTile::tile_k, "");    
+    static constexpr int tile_n = BTile::tile_n;
+
+    static constexpr int block_m = BLOCK_M;
+    static constexpr int block_k = BLOCK_K;
+    static constexpr int block_n = BLOCK_N;
+    static constexpr int warps_m = WarpM;
+    static constexpr int warps_n = WarpN;
+    static_assert(block_m % (tile_m * warps_m) == 0, "");
+    static_assert(block_n % (tile_n * warps_n) == 0, "");
+    static_assert(block_k % tile_k == 0, "");
+
+    static constexpr int rep_m = BLOCK_M / (warps_m * tile_m);
+    static constexpr int rep_n = BLOCK_N / (warps_n * tile_n);
+    static constexpr int rep_k = BLOCK_K / tile_k;
+    // this could be removed if we check for oversubscription, eg: return from start
+
+    CTile Ctiles[rep_m][rep_n];
+
+    __device__ inline void fill_c(float v) {
+        repeat<rep_m, rep_n>([&](int i, int j) {
+            Ctiles[i][j].fill(v);
+        }); 
+    }
+
+    template <typename GMemC>
+    __device__ inline void copy_r2g(GMemC &gC) {
+        int warp = threadIdx.x / warp_size;
+        int warp_m = warp % warps_m;
+        int warp_n = warp / warps_m;
+        repeat<rep_m, rep_n>([&](int i, int j) {
+            OffsetAccessor<GMemC> gC_acc = {gC, warp_m * rep_m * tile_m + i * tile_m, warp_n * rep_n * tile_n + j * tile_n};
+            Ctiles[i][j].copy_r2g(gC_acc);
+        });
+    }
+
+};
+
+
+template <int BLOCK_M, 
+          int BLOCK_K, 
+          int BLOCK_N, 
+          typename ATile, 
+          typename BTile, 
+          typename CTile, 
           int Warps>
-struct BlockGemmV1 : BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps> {
-    using super = BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps>;
+struct BlockGemmV1 : BlockGemmBaseV1<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps> {
+    using super = BlockGemmBaseV1<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps>;
 
     ATile Atiles[super::rep_m];
     BTile Btiles[super::rep_n];
@@ -228,7 +278,7 @@ struct BlockGemmV1 : BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTil
 
             // mma
             repeat<super::rep_m, super::rep_n>([&](int i, int j) {
-                MMA::mma(Atiles[i], Btiles[j], this->Ctiles[i][j]);
+                TileMMA<ATile, BTile, CTile>::mma(Atiles[i], Btiles[j], this->Ctiles[i][j]);
             });
         }
     }
@@ -240,20 +290,32 @@ template <int BLOCK_M,
           typename ATile, 
           typename BTile, 
           typename CTile, 
-          typename MMA,
           int Warps>
-struct BlockGemmV1_Init : BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps> {
-    using super = BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps>;
+struct BlockGemmV1_Init : BlockGemmBaseV1<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps> {
+    using super = BlockGemmBaseV1<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps>;
 
     ATile Atiles[super::rep_m];
     BTile Btiles[super::rep_n];
 
-    template <typename SMemA, typename SMemB>
-    __device__ inline void mma(SMemA &sA, SMemB &sB) {
+    int warp_offsets_m[super::rep_m];
+    int warp_offsets_n[super::rep_n];
+
+    __device__ inline BlockGemmV1_Init() {
         int warp = __builtin_amdgcn_readfirstlane(threadIdx.x / warp_size);
         int warp_m = warp % super::warps_m;
         int warp_n = warp / super::warps_m;
         
+        for (int im = 0; im < super::rep_m; im++) {
+            warp_offsets_m[im] = warp_m * super::tile_m * super::rep_m + im * super::tile_m;
+        }
+
+        for (int in = 0; in < super::rep_n; in++) {
+            warp_offsets_n[in] = warp_n * super::tile_n * super::rep_n + in * super::tile_n;
+        }
+    }
+
+    template <typename SMemA, typename SMemB>
+    __device__ inline void mma(SMemA &sA, SMemB &sB) {
         int offset_k = 0;
         #pragma unroll
         for (int k = 0; k < super::rep_k; k++) {
@@ -262,7 +324,7 @@ struct BlockGemmV1_Init : BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile,
             for (int im = 0; im < super::rep_m; im++) {
                 OffsetAccessor<SMemA> sA_acc = {
                     sA, 
-                    warp_m * super::tile_m * super::rep_m + im * super::tile_m,
+                    warp_offsets_m[im],
                     offset_k    
                 };
 
@@ -275,7 +337,7 @@ struct BlockGemmV1_Init : BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile,
                 OffsetAccessor<SMemB> sB_acc = {
                     sB,
                     offset_k,
-                    warp_n * super::tile_n * super::rep_n + in * super::tile_n
+                    warp_offsets_n[in]
                 };
 
                 Btiles[in].copy_s2r(sB_acc);
@@ -284,7 +346,7 @@ struct BlockGemmV1_Init : BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile,
 
             // mma
             repeat<super::rep_m, super::rep_n>([&](int i, int j) {
-                MMA::mma(Atiles[i], Btiles[j], this->Ctiles[i][j]);
+                TileMMA<ATile, BTile, CTile>::mma(Atiles[i], Btiles[j], this->Ctiles[i][j]);
             });
         }
     }
@@ -297,10 +359,9 @@ template <int BLOCK_M,
           typename ATile, 
           typename BTile, 
           typename CTile, 
-          typename MMA,
           int Warps>
-struct BlockGemmV2 : BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps> {
-    using super = BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps>;
+struct BlockGemmV2 : BlockGemmBaseV1<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps> {
+    using super = BlockGemmBaseV1<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, Warps>;
 
     ATile Atiles[2][super::rep_m];
     BTile Btiles[2][super::rep_n];
@@ -356,8 +417,80 @@ struct BlockGemmV2 : BlockGemmBase<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTil
                 load_btile(sB, (k + 1) % 2, (k + 1) * super::tile_k);
             }
             repeat<super::rep_m, super::rep_n>([&](int i, int j) {
-                MMA::mma(Atiles[k % 2][i], Btiles[k % 2][j], this->Ctiles[i][j]);
+                TileMMA<ATile, BTile, CTile>::mma(Atiles[k % 2][i], Btiles[k % 2][j], this->Ctiles[i][j]);
             });
+        }
+    }
+};
+
+template <int BLOCK_M, 
+          int BLOCK_K, 
+          int BLOCK_N, 
+          typename ATile, 
+          typename BTile, 
+          typename CTile, 
+          int WarpM,
+          int WarpN>
+struct BlockGemmV3 : BlockGemmBaseV2<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, WarpM, WarpN> {
+    using super = BlockGemmBaseV2<BLOCK_M, BLOCK_K, BLOCK_N, ATile, BTile, CTile, WarpM, WarpN>;
+
+    ATile Atile;
+    BTile Btile;
+
+    template <typename SMemA, typename SMemB>
+    __device__ inline void mma(SMemA &sA, SMemB &sB) {
+        int warp = threadIdx.x / warp_size;
+        int warp_m = warp % super::warps_m;
+        int warp_n = warp / super::warps_m;
+
+        #pragma unroll
+        for (int k = 0; k < BLOCK_K; k += super::tile_k) {
+            if constexpr(super::rep_m < super::rep_n) {
+                #pragma unroll
+                for (int im = 0; im < super::rep_m; im++) {
+                    OffsetAccessor<SMemA> sA_acc = {
+                        sA, 
+                        warp_m * super::tile_m * super::rep_m + im * super::tile_m,
+                        k
+                    };
+                    Atile.copy_s2r(sA_acc);
+
+                    #pragma unroll
+                    for (int in = 0; in < super::rep_n; in++) {
+                        OffsetAccessor<SMemB> sB_acc = {
+                            sB,
+                            k,
+                            warp_n * super::tile_n * super::rep_n + in * super::tile_n
+                        };
+
+                        Btile.copy_s2r(sB_acc);
+
+                        TileMMA<ATile, BTile, CTile>::mma(Atile, Btile, this->Ctiles[im][in]);
+                    }
+                }
+            } else {
+                #pragma unroll
+                for (int in = 0; in < super::rep_n; in++) {
+                    OffsetAccessor<SMemB> sB_acc = {
+                        sB,
+                        k,
+                        warp_n * super::tile_n * super::rep_n + in * super::tile_n
+                    };
+                    Btile.copy_s2r(sB_acc);
+
+                    #pragma unroll
+                    for (int im = 0; im < super::rep_m; im++) {
+                            OffsetAccessor<SMemA> sA_acc = {
+                            sA, 
+                            warp_m * super::tile_m * super::rep_m + im * super::tile_m,
+                            k    
+                        };
+                        Atile.copy_s2r(sA_acc);
+
+                        TileMMA<ATile, BTile, CTile>::mma(Atile, Btile, this->Ctiles[im][in]);
+                    }
+                }
+            }
         }
     }
 };
