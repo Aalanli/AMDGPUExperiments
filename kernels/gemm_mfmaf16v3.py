@@ -38,9 +38,7 @@ kernel = KernelHandler(
     compile_configs=list(generate_configs()),
     keys=['m', 'k', 'n', 'ver'],
     platform='amd',
-    disable_benchmark=False,
-    ignore_compile_errors=True,
-    parallel_compile=True,
+    testing=False,
     arch='gfx90a',
 )
 
@@ -62,7 +60,7 @@ def show_err(x):
     plt.show()
 
 if __name__ == '__main__':
-    # peak: 0.19424
+    # peak: 2048 - 0.19424; 4096 - 1.22
     d = 4096
     # a = torch.arange(0, d, device='cuda')[None, :] + torch.arange(0, d, device='cuda')[:, None] * d
     # a = a.to(torch.half)

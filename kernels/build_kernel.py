@@ -230,6 +230,146 @@ def parallel_imap(func: Callable, jobs: Sequence[Any], num_workers: Optional[int
     _job_queue = None
 
 class KernelHandler:
+
+    def _setup_dir(self):
+        file_name = os.path.basename(self.source_file)
+        file_name_no_ext = os.path.splitext(file_name)[0]
+        dir_name = file_name_no_ext if self.name is None else self.name
+
+        with open(self.source_file, 'r') as f:
+            self.source = f.read()
+        
+        super_dir_path = os.path.join(CACHE_DIR, dir_name)
+        if not os.path.exists(super_dir_path):
+            os.makedirs(super_dir_path)
+
+
+        # scan through the cached dirs to see if one matches the current src file
+        sub_versions = [int(s) for s in os.listdir(super_dir_path)]
+        sub_versions.sort()
+        dir_path = None
+        for i in sub_versions:
+            src_file = os.path.join(super_dir_path, str(i), file_name)
+            if os.path.exists(src_file) and os.path.isfile(src_file):
+                with open(src_file, 'r') as f:
+                    new_src = f.read()
+                    if new_src == self.source:
+                        dir_path = os.path.join(super_dir_path, str(i))
+                        break
+        if dir_path is None:
+            dir_path = os.path.join(super_dir_path, str(1 if len(sub_versions) == 0 else sub_versions[-1] + 1))
+
+        # remove past versions
+        if len(sub_versions) > self.keep and self.keep > 1:
+            rm_path = os.path.join(super_dir_path, str(sub_versions[0]))
+            if rm_path != dir_path:
+                try:
+                    shutil.rmtree(rm_path)
+                except Exception as e:
+                    print(f'Failed to remove {rm_path} due to {e}')
+        
+
+        self.kernels_path = os.path.join(dir_path, "kernels")
+        self.dir_path = dir_path
+
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path)
+        if not os.path.exists(self.kernels_path):
+            os.makedirs(self.kernels_path)
+        shutil.copy(self.source_file, dir_path)
+
+    def _compile_kernels(self):
+        so_name2_config: Dict[str, KernelConfig] = {
+            config.so_name(): config for config in self.compile_configs
+        }
+        self.failed_to_compile: Set[str] = set()
+        # reset failed json if parallel is false or ignore errors is false
+        if os.path.exists(os.path.join(self.dir_path, 'failed.json')) and self.parallel_compile and self.ignore_compile_errors:
+            with open(os.path.join(self.dir_path, 'failed.json'), 'r') as f:
+                self.failed_to_compile: Set[str] = set(json.load(f))
+        need_to_compile = list(filter(
+            lambda x: not os.path.exists(os.path.join(self.kernels_path, x)) and x not in self.failed_to_compile, so_name2_config.keys()
+        ))
+        extra_params = {k: str(v) for k, v in self.compile_params.items()} if self.compile_params is not None else {}
+        failed_reasons = ''
+
+        if len(need_to_compile) > 0:
+            compile_items: List[BuildConfig] = []
+            for so_name in need_to_compile:
+                config = so_name2_config[so_name]
+                assert len(config.config.keys() & extra_params.keys()) == 0, f'Extra params {extra_params.keys()} overlap with config keys {config.config.keys()}'
+                config.config.update(extra_params)
+                launch_name = config.launch_name()
+                compile_param = {}
+                compile_param.update(config.config)
+                compile_param['LAUNCH_NAME'] = launch_name
+                if self.arch == 'gfx90a':
+                    compile_param['__gfx90a__'] = 1
+                    compile_param['__WARP_SIZE_AMDGCN__'] = 64
+                elif self.arch == 'gfx1100':
+                    compile_param['__gfx1100__'] = 1
+                    compile_param['__WARP_SIZE_AMDGCN__'] = 32
+
+
+                compile_items.append(BuildConfig(
+                    source_file=self.source_file,
+                    amd=self.platform=='amd',
+                    compile_params=compile_param,
+                    out_path=os.path.join(self.kernels_path, so_name),
+                    archs=self.arch
+                ))
+            
+            if self.parallel_compile:
+                res: List[Tuple[bool, str]] = list(tqdm(parallel_imap(lambda x: build_worker(x, self.ignore_compile_errors), compile_items), total=len(need_to_compile), desc='Compiling kernels'))
+            else:
+                res: List[Tuple[bool, str]] = [build_worker(config, self.ignore_compile_errors) for config in compile_items]
+            
+            successfully_compiled = 0
+            for i in range(len(res)):
+                if not res[i][0]: # failed to compile
+                    self.failed_to_compile.add(need_to_compile[i])     
+                    failed_reasons += need_to_compile[i] + '\n' + res[i][1] + '\n'
+
+                if res[i][0] and need_to_compile[i] in self.failed_to_compile:
+                    self.failed_to_compile.remove(need_to_compile[i])
+                    successfully_compiled += 1
+
+        if self.ignore_compile_errors:
+            with open(os.path.join(self.dir_path, 'failed.json'), 'w') as f:
+                json.dump(list(self.failed_to_compile), f)
+            with open(os.path.join(self.dir_path, 'failed_reason.txt'), 'w') as f:
+                f.write(failed_reasons)
+            
+
+        for so_name, config in so_name2_config.items():
+            lib_path = os.path.join(self.kernels_path, so_name)
+            if not os.path.exists(lib_path) or so_name in self.failed_to_compile:
+                continue
+            lib = ctypes.cdll.LoadLibrary(os.path.join(self.kernels_path, so_name))
+            assert hasattr(lib, config.launch_name()), f'Library {so_name} does not have launch function {config.launch_name()}'
+            launch_func = getattr(lib, config.launch_name())
+            launch_func.restype = ctypes.c_bool
+            self.launch_funcs[so_name] = launch_func
+        if len(self.launch_funcs) == 0:
+            raise RuntimeError(f'No kernels compiled for {self.source_file}')
+
+        if os.path.exists(os.path.join(self.dir_path, 'meta_data.json')) and len(need_to_compile) == 0:
+            with open(os.path.join(self.dir_path, 'meta_data.json'), 'r') as f:
+                self.kernel_map = json.load(f)
+        if os.path.exists(os.path.join(self.dir_path, 'kernel_times.json')):
+            with open(os.path.join(self.dir_path, 'kernel_times.json'), 'r') as f:
+                self.kernel_times = json.load(f)
+    
+
+    def _init_kernels(self):
+        if self.init:
+            return
+        
+        self._setup_dir()
+        self._compile_kernels()
+
+        self.init = True
+
     def __init__(
             self, 
             source_file: str, 
@@ -240,9 +380,8 @@ class KernelHandler:
             name: Optional[str] = None,
             keep: int = 3,
             compile_params: Optional[Dict[str, Any]] = None,
-            disable_benchmark: bool = False,
-            parallel_compile: bool = True,
-            ignore_compile_errors: bool = True
+            testing: bool = False,
+            **kwargs
         ):
         """
         Invariants that must be satisfied by the source file:
@@ -261,145 +400,39 @@ class KernelHandler:
               kernel_times.json (a file containing kernel timings on a runtime shape)
               src_file.cpp (the source file)
         """
+        assert os.path.exists(source_file) and os.path.isfile(source_file), f'File {source_file} does not exist'
+        assert platform in ('amd', 'nvidia'), f'Platform {platform} not supported'
+        assert arch in ('gfx90a', 'gfx1100'), f'Arch {arch} not supported'
+        assert len(compile_configs) > 0, 'Must provide at least one compile config'
+        assert keep > 0, 'Must keep at least one version'
+    
 
-        assert platform in ['amd', 'nvidia']
-        assert arch in AMDGPU_ARCHS
-        self.disable_benchmark = disable_benchmark
-        self.platform = platform
-
-        self.source_file = source_file
-        assert os.path.exists(self.source_file) and os.path.isfile(self.source_file), f'File {self.source_file} does not exist'
-        file_name = os.path.basename(self.source_file)
-        file_name_no_ext = os.path.splitext(file_name)[0]
-        dir_name = file_name_no_ext if name is None else name
-
-        with open(self.source_file, 'r') as f:
-            self.source = f.read()
-        
-        super_dir_path = os.path.join(CACHE_DIR, dir_name)
-        if not os.path.exists(super_dir_path):
-            os.makedirs(super_dir_path)
-
-        # scan through the cached dirs to see if one matches the current src file
-        sub_versions = [int(s) for s in os.listdir(super_dir_path)]
-        sub_versions.sort()
-        dir_path = None
-        for i in sub_versions:
-            src_file = os.path.join(super_dir_path, str(i), file_name)
-            if os.path.exists(src_file) and os.path.isfile(src_file):
-                with open(src_file, 'r') as f:
-                    new_src = f.read()
-                    if new_src == self.source:
-                        dir_path = os.path.join(super_dir_path, str(i))
-                        break
-        if dir_path is None:
-            dir_path = os.path.join(super_dir_path, str(1 if len(sub_versions) == 0 else sub_versions[-1] + 1))
-
-        # remove past versions
-        if len(sub_versions) > keep and keep > 1:
-            rm_path = os.path.join(super_dir_path, str(sub_versions[0]))
-            if rm_path != dir_path:
-                shutil.rmtree(rm_path)
-
-        kernels_path = os.path.join(dir_path, "kernels")
-        self.dir_path = dir_path
-
-        self.keys = keys
-        self.keys.sort()
-
-        if not os.path.exists(dir_path):
-            os.makedirs(dir_path)
-        if not os.path.exists(kernels_path):
-            os.makedirs(kernels_path)
-        shutil.copy(self.source_file, dir_path)
-        self.compile_file_src = os.path.join(dir_path, file_name)
-
-        self.so_name2_config: Dict[str, KernelConfig] = {
-            config.so_name(): config for config in compile_configs
-        }
-        self.failed_to_compile: Set[str] = set()
-        # reset failed json if parallel is false or ignore errors is false
-        if os.path.exists(os.path.join(dir_path, 'failed.json')) and parallel_compile and ignore_compile_errors:
-            with open(os.path.join(dir_path, 'failed.json'), 'r') as f:
-                self.failed_to_compile: Set[str] = set(json.load(f))
-        need_to_compile = list(filter(
-            lambda x: not os.path.exists(os.path.join(kernels_path, x)) and x not in self.failed_to_compile, self.so_name2_config.keys()
-        ))
-        extra_params = {k: str(v) for k, v in compile_params.items()} if compile_params is not None else {}
-        failed_reasons = ''
-
-        if len(need_to_compile) > 0:
-            compile_items: List[BuildConfig] = []
-            for so_name in need_to_compile:
-                config = self.so_name2_config[so_name]
-                assert len(config.config.keys() & extra_params.keys()) == 0, f'Extra params {extra_params.keys()} overlap with config keys {config.config.keys()}'
-                config.config.update(extra_params)
-                launch_name = config.launch_name()
-                compile_param = {}
-                compile_param.update(config.config)
-                compile_param['LAUNCH_NAME'] = launch_name
-                if arch == 'gfx90a':
-                    compile_param['__gfx90a__'] = 1
-                    compile_param['__WARP_SIZE_AMDGCN__'] = 64
-                elif arch == 'gfx1100':
-                    compile_param['__gfx1100__'] = 1
-                    compile_param['__WARP_SIZE_AMDGCN__'] = 32
-
-
-                compile_items.append(BuildConfig(
-                    source_file=self.source_file,
-                    amd=platform=='amd',
-                    compile_params=compile_param,
-                    out_path=os.path.join(kernels_path, so_name),
-                    archs=arch
-                ))
-            
-            if parallel_compile:
-                res: List[Tuple[bool, str]] = list(tqdm(parallel_imap(lambda x: build_worker(x, ignore_compile_errors), compile_items), total=len(need_to_compile), desc='Compiling kernels'))
-            else:
-                res: List[Tuple[bool, str]] = [build_worker(config, ignore_compile_errors) for config in compile_items]
-            
-            successfully_compiled = 0
-            for i in range(len(res)):
-                if not res[i][0]: # failed to compile
-                    self.failed_to_compile.add(need_to_compile[i])     
-                    failed_reasons += need_to_compile[i] + '\n' + res[i][1] + '\n'
-
-                if res[i][0] and need_to_compile[i] in self.failed_to_compile:
-                    self.failed_to_compile.remove(need_to_compile[i])
-                    successfully_compiled += 1
-
-        if ignore_compile_errors:
-            with open(os.path.join(dir_path, 'failed.json'), 'w') as f:
-                json.dump(list(self.failed_to_compile), f)
-            with open(os.path.join(dir_path, 'failed_reason.txt'), 'w') as f:
-                f.write(failed_reasons)
-            
-
-        # so_name -> so_launch_func
-        self.launch_funcs = {}
-        for so_name, config in self.so_name2_config.items():
-            lib_path = os.path.join(kernels_path, so_name)
-            if not os.path.exists(lib_path) or so_name in self.failed_to_compile:
-                continue
-            lib = ctypes.cdll.LoadLibrary(os.path.join(kernels_path, so_name))
-            assert hasattr(lib, config.launch_name()), f'Library {so_name} does not have launch function {config.launch_name()}'
-            launch_func = getattr(lib, config.launch_name())
-            launch_func.restype = ctypes.c_bool
-            self.launch_funcs[so_name] = launch_func
-        if len(self.launch_funcs) == 0:
-            raise RuntimeError(f'No kernels compiled for {self.source_file}')
-
-        # map from runtime-key to best so_name
         self.kernel_map: Dict[str, str] = {}
         self.kernel_times: Dict[str, Dict[str, float]] = {}
-        if os.path.exists(os.path.join(dir_path, 'meta_data.json')) and len(need_to_compile) == 0:
-            with open(os.path.join(dir_path, 'meta_data.json'), 'r') as f:
-                self.kernel_map = json.load(f)
-        if os.path.exists(os.path.join(dir_path, 'kernel_times.json')):
-            with open(os.path.join(dir_path, 'kernel_times.json'), 'r') as f:
-                self.kernel_times = json.load(f)
-    
+        self.source_file: str = source_file
+        self.failed_to_compile: Set[str] = set()
+        self.launch_funcs: Dict[str, Callable] = {}
+        self.keys: List[str] = keys
+        self.dir_path: str = ''
+
+        self.compile_configs = compile_configs
+        self.platform = platform
+        self.arch = arch
+        self.name = name
+        self.keep = keep
+        self.compile_params = compile_params
+
+        if testing:
+            self.disable_benchmark = True
+            self.parallel_compile = False
+            self.ignore_compile_errors = False
+        else:
+            self.disable_benchmark = False
+            self.parallel_compile = True
+            self.ignore_compile_errors = True
+        
+        self.init: bool = False
+        
     def kernel_avg_time(self) -> List[Tuple[str, float]]:
         kernel_times = {}
         for _runtime_key, variants in self.kernel_times.items():
@@ -468,12 +501,17 @@ class KernelHandler:
         return args, runtime_key
         
     def call_so(self, so_name, *args, **kwargs):
+        self._init_kernels()
+        
         args, _ = self.warp_args(*args, **kwargs)
         func = self.launch_funcs[so_name]
         if not func(*args):
             raise RuntimeError(f'Kernel launch {so_name} failed')
 
     def __call__(self, *args, **kwargs):
+        # lazy init
+        self._init_kernels()
+
         args, runtime_key = self.warp_args(*args, **kwargs)
 
         if self.disable_benchmark:
