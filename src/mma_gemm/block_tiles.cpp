@@ -74,6 +74,18 @@ struct LdgBlockFrag {
 };
 
 
+template <int BLOCK_A, int BLOCK_B, int Warps, int VecLoad>
+struct LdgParams {
+    static_assert(is_power_of_2(BLOCK_B) && BLOCK_B % VecLoad == 0, "");
+    static_assert(is_power_of_2(BLOCK_A), "");
+    static_assert(BLOCK_B <= Warps * warp_size, "not enough threads per row");
+    static constexpr int threads_per_row = BLOCK_B / VecLoad;
+    static constexpr int stride_col = Warps * warp_size / threads_per_row;
+    static constexpr int rep = Max<1, BLOCK_A / stride_col>::value;
+    static constexpr bool oversub = stride_col > BLOCK_A;
+};
+
+
 template <typename T, int BLOCK_A, int BLOCK_B, int Warps, int VecLoad>
 struct LdgBlockFragv2 {
     static_assert(is_power_of_2(BLOCK_B) && BLOCK_B % VecLoad == 0, "");
@@ -128,7 +140,6 @@ struct LdgBlockFragv2 {
                     *sA.index(i * stride_col + col, row * VecLoad + j) = ldg_regs[i][j];            
         }
     }
-
 };
 
 

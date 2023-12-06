@@ -3,6 +3,7 @@
 #include "hip_utils.hpp"
 #include "warp_tiles.cpp"
 #include "block_tiles.cpp"
+#include <__clang_hip_runtime_wrapper.h>
 #include <hip/amd_detail/amd_hip_runtime.h>
 
 
@@ -487,6 +488,40 @@ struct Mfma_gemmv3_Pipeline1_E_Ldgv2 : BasicGemmInstance<T, BLOCK_M, BLOCK_K, BL
         block_gemm.copy_r2g(gC);
     }
 };
+
+template <typename LdgA,
+          typename LdgB,
+          typename SA,
+          typename SB,
+          typename GemmInstance,
+          int BLOCK_K>
+__device__ inline void pipeline_1_E(
+    LdgA& ldg_a, LdgB& ldg_b, SA& sA, SB& sB, GemmInstance& block_gemm, int K
+) {
+    ldg_a.copy_g2r();
+    ldg_b.copy_g2r();
+    block_gemm.fill_c(0.0f);
+
+    ldg_a.copy_r2s(sA);
+    ldg_b.copy_r2s(sB);
+
+    const int ktiles = cdiv(K, BLOCK_K) - 1;
+    for (int k = 0; k < ktiles; ++k) {
+        ldg_a.copy_g2r();
+        block_sync_lds();
+
+        ldg_b.copy_g2r();
+        block_gemm.mma(sA, sB);
+
+        block_sync_lds();
+
+        ldg_a.copy_r2s(sA);
+        ldg_b.copy_r2s(sB);        
+    }
+    block_sync_lds();
+    block_gemm.mma(sA, sB);
+}
+
 
 template <typename T,
           int BLOCK_M, 

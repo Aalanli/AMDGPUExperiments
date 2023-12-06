@@ -33,10 +33,10 @@ if __name__ == '__main__':
 
     # bench.bench(benchmark_func(lambda a, b: mfma_gemmv2f16(a, b, ver=2)), "mfmaf16v2_ver2")
     bench.bench(benchmark_func(lambda a, b: mfma_gemmv2f16(a, b, ver=3)), "mfmaf16v2_ver3")
-    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3f16(a, b, ver=0)), "mfmaf16v2_ver0")
-    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3f16(a, b, ver=1)), "mfmaf16v2_ver1")
-    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3f16(a, b, ver=2)), "mfmaf16v2_ver2")
-    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3f16(a, b, ver=3)), "mfmaf16v2_ver3")
+    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3f16(a, b, ver=0)), "mfmaf16v3_ver0")
+    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3f16(a, b, ver=1)), "mfmaf16v3_ver1")
+    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3f16(a, b, ver=2)), "mfmaf16v3_ver2")
+    bench.bench(benchmark_func(lambda a, b: mfma_gemmv3f16(a, b, ver=3)), "mfmaf16v3_ver3")
     bench.bench(benchmark_func(ck_gemmf16), 'composable_kernel')
 
     data = bench.run()

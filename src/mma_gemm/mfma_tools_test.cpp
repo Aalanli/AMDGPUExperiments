@@ -12,10 +12,25 @@ void print_layout() {
     });
 }
 
+template <typename F>
+constexpr auto test(F&& f) {
+    return [&] (int i, int j) {
+        return i * 10 + j + f(i, j);
+    };
+}
+
+__global__ void test(int* t) {
+    using Task = ComposeTask<SpatialTask<2, 1>, ComposeTask<RepeatTask<2, 1>, SpatialTask<1, 32>>>;
+    Task::apply(threadIdx.x, [=] __device__ (Index global, Index local) {
+        t[global.i * 32 + global.j] = local.i;
+    });
+}
+
+
 int main() {
-    using L = ComposeLayout<SwizzleLayout<4, 4>, RowLayout<1, 4>>;
+    using L = ReshapeLayout<SwizzleLayout<4, 32>, 8, 16>;
     print_layout<L>();
 
-    using L1 = TransposeLayout<L>;
-    print_layout<L1>();
+    auto t = test([](int i, int j) { return i ^ j; });
+    printf("%d\n", t(1, 2));
 }
