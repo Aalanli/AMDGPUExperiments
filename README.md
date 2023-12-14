@@ -317,6 +317,40 @@ Page 74:
 > The MUBUF instruction format allows reading data from a memory buffer directly into LDS
 without passing through VGPRs
 
+## Omnitrace
+
+How to get kernel times:
+```
+/opt/rocm/bin/rocprof --stats --basenames on --hip-trace --hsa-trace --sys-trace <app>
+```
+
+list counters
+```
+rocprof --list-basic
+rocprof --list-derived
+```
+
+pass interesting hardware counters
+```
+/opt/rocm/bin/rocprof -i rocprof_counters.txt <app>
+cat rocprof_counters.txt
+
+pmc : Wavefronts VALUInsts VFetchInsts
+pmc : SALUInsts SFetchInsts
+```
+
+commonly used counters
+- VALUUtilization
+- VALUBusy
+- FetchSize
+- WriteSize
+- L2CacheHit
+- MemUnitBusy
+- MemUnitStalled
+- WriteUnitStalled
+
+
+
 ## MISC
 **Torch HIP Semantics**
 https://pytorch.org/docs/stable/notes/hip.html

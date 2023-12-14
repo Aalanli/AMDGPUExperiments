@@ -32,3 +32,6 @@ __global__ void test() {
     int (*f)(int, int) = t1;
     auto t2 = assign<float, 32, 32>(f);
 }
+
+int main() {
+}

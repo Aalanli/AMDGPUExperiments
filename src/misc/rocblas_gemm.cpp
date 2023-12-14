@@ -366,7 +366,6 @@ EXPORT bool LAUNCH_NAME(const TYPE* a, const TYPE* b, TYPE* c, int m, int k, int
         hipLaunchKernelGGL(kernelv1, dim3(blocks_m, blocks_n), dim3(WARPSZ_M, WARPSZ_N), 0, 0, m, n, k, a, b, c);
     else if (version == 2)
         hipLaunchKernelGGL(kernelv2, dim3(blocks_m, blocks_n), dim3(WARPSZ_N, WARPSZ_M), 0, 0, m, n, k, a, b, c);
-    
     auto error = hipGetLastError();
     if (error != hipSuccess) {
         printf("Error: %s\n", hipGetErrorString(error));
